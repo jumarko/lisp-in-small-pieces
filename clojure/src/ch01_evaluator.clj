@@ -5,7 +5,6 @@
 ;;; 1.2 (p.4): define `evaluate` signature
 (defn evaluate [exp env])
 
-
 ;;; 1.3 (p.4): start building the implementation
 ;;; - introduces `atom?` check and `case` for non-atomic forms
 ;;; - discusses the difference between 'program' and 'representation';
@@ -28,14 +27,11 @@
 (atom? {1 2 3 4})
 ;; => true
 
-
 (defn evaluate [exp env]
   (if (atom? exp)
     ,,,
     ;; we use `first` instead of `car`
-    (case (first exp)
-      ,,,)))
-
+    (case (first exp))))
 
 ;; An atomic expression can be a symbol (represents a variable whose value is defined by the environment);
 ;; it can also be actual data like a number or a string
@@ -47,11 +43,9 @@
       exp)
 
     ;; we use `first` instead of `car`
-    (case (first exp)
-      ,,,)))
+    (case (first exp))))
 ;; don't try to call it yet because `lookup` isn't defined
 #_(evaluate 'ahoj {})
-
 
 ;; autoquoted objects like numbers and strings don't have to be quoted
 ;; and are represented by their values
@@ -69,8 +63,7 @@
       :else (wrong "Cannot evaluate - unknown atomic expression?" exp))
 
     ;; we use `first` instead of `car`
-    (case (first exp)
-      ,,,)))
+    (case (first exp))))
 
 (evaluate 1 {})
 ;; => 1
@@ -78,9 +71,6 @@
 ;; => "ahoj"
 (evaluate [1 2 3] {})
 ;; => [1 2 3]
-
-
-
 
 ;;; 1.4 Evaluating forms (p. 6 - 12)
 ;;; Discusses "special forms" like quote, if, set!, lambda, begin
@@ -100,13 +90,86 @@
     ;; we use `first` instead of `car`
     (case (first exp)
       quote (second exp)
+      ;; (p.8) we gloss over the fact that in `(if pred)` we use boolean semantics
+      ;; of the implementation language (Clojure - which means `nil` will be falsy);
+      ;; more precisely, we should write `(if-not (= the-false-value (evaluate (second exp) env)))
       if (if (evaluate (second exp) env)
            (evaluate (nth exp 2) env)
            (evaluate (nth exp 3) env))
       begin (eprogn (rest exp) env)
       set! (update! (second exp) env (evaluate (nth exp 2) env))
       lambda (make-function (second exp) (nnext exp) env)
-      :else (invoke (evaluate (first exp) env)
-                    (evlis (rest exp) env)))))
+      ;; it's not a special form, just ordinary function => call it!
+      (invoke (evaluate (first exp) env)
+              (evlis (rest exp) env)))))
 
 ;; 1.4.1 quote - distinguishes program from data
+
+;; 1.4.2 Alternatives (if)
+;; in our implementation, we simply the check
+;; and use the boolean semantics of the implementation language (Clojure)
+;; - this means, we will handle `nil` as falsy
+;; a more precise check would be something like
+(comment
+  (def the-false-value false)
+  (if-not (false? (evaluate (second exp) env))
+    (evaluate (nth exp 2) env)
+    (evaluate (nth exp 3) env))
+
+  .)
+
+
+;; 1.4.3 Sequence (p.9)
+;; - to form a group of forms to evaluate them sequentially
+;; here we define the helper `eprogn` function
+(defn eprogn [exps env]
+  (if (list? exps)
+    (let [[fst & rst] exps
+          ;; first expression is always evaluated
+          fst-val (evaluate fst env)]
+      (if (list? rst)
+        (eprogn rst env) ; process the reset of the forms by calling `eprogn` recursively
+        ;; the final term in the sequence
+        fst-val))
+    ;; here we could also return `nil` or other value - see discussion on p.10
+    ()))
+
+;; ... we cannot call `eprogn` with for this sequence yet because `lookup` isn't defined
+;; (it would try to lookup the `println` symbol)
+;; so let's define lookup very simply and temporarily
+(defn lookup [exp env]
+  (if-let [[k v] (find env exp)]
+    v
+    ;; resolve symbols to the object it points to
+    (some-> exp resolve var-get)))
+(lookup 'println {})
+;; => #function[clojure.core/println]
+
+;; ... we also need evlis which is only defined in section 1.4.6 (p.12)
+(defn evlis [exps env]
+  (if (list? exps)
+    (map #(evaluate % env) exps)
+    ()))
+(evlis '(a (println b) "hello") {})
+;; => (nil nil "hello")
+
+;; ... and `invoke`
+(defn invoke [f args]
+  (if (fn? f)
+    (f args)
+    (wrong "Not a function" f args)))
+(invoke inc 10)
+;; => 11
+
+;; ... and finally we can try it
+(eprogn '((println "I'm first")
+          (println "I'm second")
+          "Finally a value!")
+        {})
+;; These will be printed in the REPL:
+;;   (I'm first)
+;;   (I'm second)
+;; => "Finally a value!"
+
+;; check also alternative representation of sequences
+;; by using only `if` or `lambda` (p.10/11)
