@@ -193,3 +193,35 @@
 (evaluate '(begin (inc 1) (println "ahoj") (map inc (range 10))) {})
 ;; => (1 2 3 4 5 6 7 8 9 10)
 
+
+;; 1.5 Environment (p.12-)
+
+;; this is how `set!` is implemented in `evaluate`:
+;;   set! (update! (second exp) env (evaluate (nth exp 2) env))
+
+;; what set! does in scheme:
+;; (define x 2)
+;; ;Value: x
+;; x
+;; ;Value: 2
+
+;; (set! x 1)
+;; ;Value: 2
+;; x
+;; ;Value: 1
+
+;; alter-var-root in clojure?
+;; (def x 2)
+;; (alter-var-root #'x inc)
+;; (println x)
+
+(defn update! [id env value]
+  (if (map? env)
+    (assoc env id value)
+    (wrong "Can't understand environment" env {:id id
+                                               :env env
+                                               :value value})))
+
+(evaluate '(set! x 1) {})
+;; => {x 1}
+
