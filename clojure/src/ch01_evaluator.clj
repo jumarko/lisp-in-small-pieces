@@ -59,9 +59,7 @@
   (if (atom? exp)
     (cond
       (symbol? exp) (lookup exp env)
-      ;; TODO: why is vector? here??
-      ;; TODO: what about keywords? nil?
-      ((some-fn number? string? char? boolean? vector? keyword?) exp) exp
+      ((some-fn number? string? char? boolean? vector?) exp) exp
       :else (wrong "Cannot evaluate - unknown atomic expression?" exp))
 
     ;; we use `first` instead of `car`
@@ -84,9 +82,9 @@
   (if (atom? exp)
     (cond
       (symbol? exp) (lookup exp env)
-      ;; TODO: why is vector? here??
-      ;; TODO: what about keywords? nil?
-      ((some-fn number? string? char? boolean? vector? keyword? nil?) exp) exp
+      ;; Notice that `keyword?` isn't here because keywords are Clojure's thing
+      ;; and aren't present in the Lisp we are trying to implement
+      ((some-fn number? string? char? boolean? vector?) exp) exp
       :else (wrong "Cannot evaluate - unknown atomic expression?" exp))
 
     ;; we use `first` instead of `car`
