@@ -26,6 +26,8 @@
 ;; => true
 (atom? {1 2 3 4})
 ;; => true
+(atom? :atomic)
+;; => true
 
 (defn evaluate [exp env]
   (if (atom? exp)
@@ -59,7 +61,7 @@
       (symbol? exp) (lookup exp env)
       ;; TODO: why is vector? here??
       ;; TODO: what about keywords? nil?
-      ((some-fn number? string? char? boolean? vector?) exp) exp
+      ((some-fn number? string? char? boolean? vector? keyword?) exp) exp
       :else (wrong "Cannot evaluate - unknown atomic expression?" exp))
 
     ;; we use `first` instead of `car`
@@ -84,7 +86,7 @@
       (symbol? exp) (lookup exp env)
       ;; TODO: why is vector? here??
       ;; TODO: what about keywords? nil?
-      ((some-fn number? string? char? boolean? vector?) exp) exp
+      ((some-fn number? string? char? boolean? vector? keyword? nil?) exp) exp
       :else (wrong "Cannot evaluate - unknown atomic expression?" exp))
 
     ;; we use `first` instead of `car`
@@ -122,13 +124,16 @@
 ;; 1.4.3 Sequence (p.9)
 ;; - to form a group of forms to evaluate them sequentially
 ;; here we define the helper `eprogn` function
+;;
+;; Check also alternative representation of sequences by using only `if` or `lambda` (p.10/11)
+
 (defn eprogn [exps env]
   (if (list? exps)
     (let [[fst & rst] exps
           ;; first expression is always evaluated
           fst-val (evaluate fst env)]
       (if (list? rst)
-        (eprogn rst env) ; process the reset of the forms by calling `eprogn` recursively
+        (eprogn rst env) ; process the rest of the forms by calling `eprogn` recursively
         ;; the final term in the sequence
         fst-val))
     ;; here we could also return `nil` or other value - see discussion on p.10
@@ -156,9 +161,9 @@
 ;; ... and `invoke`
 (defn invoke [f args]
   (if (fn? f)
-    (f args)
+    (apply f args)
     (wrong "Not a function" f args)))
-(invoke inc 10)
+(invoke inc '(10))
 ;; => 11
 
 ;; ... and finally we can try it
@@ -171,5 +176,20 @@
 ;;   (I'm second)
 ;; => "Finally a value!"
 
-;; check also alternative representation of sequences
-;; by using only `if` or `lambda` (p.10/11)
+
+;; what about calling `evaluate` on a sequence? 
+#_(evaluate '(do '(1 2 3) '(4 5 6)) {})
+;; Not a function
+;; ERROR: Unhandled REPL handler exception processing message {:op stacktrace, :nrepl.middleware.print/stream? 1, :nrepl.middleware.print/print cider.nrepl.pprint/pprint, :nrepl.middleware.print/quota 1048576, :nrepl.middleware.print/buffer-size 4096, :nrepl.middleware.print/options {:right-margin 100}, :session 793d408e-4d60-41b4-a7e3-5afdb8601653, :id 994}
+;; clojure.lang.Exception Info: Not a function {:expression 1, :rest-args ((2 3))}
+;; ...
+
+(evaluate '(inc 1) {});; => 
+;; => 2
+
+(evaluate '(begin (inc 1) ) {})
+;; => 2
+
+(evaluate '(begin (inc 1) (println "ahoj") (map inc (range 10))) {})
+;; => (1 2 3 4 5 6 7 8 9 10)
+
