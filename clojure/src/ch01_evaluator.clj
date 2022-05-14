@@ -126,7 +126,9 @@
 ;;
 ;; Check also alternative representation of sequences by using only `if` or `lambda` (p.10/11)
 
-(defn eprogn [exps env]
+(defn eprogn
+  "Evaluates sequence of expressions in given environment."
+  [exps env]
   (if (list? exps)
     (let [[fst & rst] exps
           ;; first expression is always evaluated
@@ -193,7 +195,8 @@
 ;; => (1 2 3 4 5 6 7 8 9 10)
 
 
-;; 1.5 Environment (p.12-)
+;;; 1.5 Environment (p.12-14)
+;;; We define an empty environment and function `extend` to bind variables to values
 
 ;; this is how `set!` is implemented in `evaluate`:
 ;;   set! (update! (second exp) env (evaluate (nth exp 2) env))
@@ -256,3 +259,50 @@
 #_(extend my-env '[hair eyes] ["brown"])
 ;; The number of variables does not match the number of values
 ;; {:expression [2 1], :rest-args ({:variables [hair eyes], :values ["brown"]})}
+
+
+
+;;; 1.6: Representing Functions (p.15-25)
+;;; This is where things start to get really interesting.
+;;; We'll try a few approaches for handling environments,
+;;; identify a problem with each approach and fix it.
+;;; We'll also look at dynamic and lexical binding.
+
+;; We already defined `invoke` but here it is again
+;; Note that our definition forces all the arguments being evaluated
+;; before validation (is it a fn?) and application
+;; This is due to how Clojure (and many other languages) evaluate arguments - eagerly, from left to right
+(defn invoke [f args]
+  (if (fn? f)
+    (apply f args)
+    (wrong "Not a function" f args)))
+
+;; p.16: evaluating a function comes down to evaluating its body
+;; in an environment where its variables are bound to the values
+
+;; We will now define `make-function`:
+;; here's the relevant portion of `evaluate` calling `make-function`
+;;       lambda (make-function (second exp) (nnext exp) env)
+;; We will try multiple approaches and fix the problems that arise as we go
+
+;; First, try with 'minimal environment' (i.e. `env-init` - empty env)
+(defn make-function [variables body env]
+  (fn [values] ; TODO: does `values` really do what we want??
+    (eprogn body (extend env-init variables values))))
+;; try it!
+#_((evaluate '(lambda (a b) a)
+           {})
+ 1 2)
+;; 1. Unhandled clojure.lang.ArityException
+;; Wrong number of args (2) passed to: ch01-evaluator/make-function/fn--13185
+
+;; Let's try again with `& values`
+(defn make-function [variables body env]
+  (fn [& values]
+    (eprogn body (extend env-init variables values))))
+((evaluate '(lambda (a b) a)
+           {})
+ 1 2)
+;; => 1
+
+
