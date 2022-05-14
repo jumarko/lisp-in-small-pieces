@@ -26,6 +26,7 @@
 ;; => true
 (atom? {1 2 3 4})
 ;; => true
+;; while keywords are not really supported by our language's evaluate function we consider them atomic
 (atom? :atomic)
 ;; => true
 
