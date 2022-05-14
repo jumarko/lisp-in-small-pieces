@@ -223,3 +223,35 @@
 (evaluate '(set! x 1) {})
 ;; => {x 1}
 
+
+;; An empty environment.
+;; Note: in the book they use the name `env.init` but that has a special meaning in Clojure.
+;; It designates a fully-qualified class name such as java.lang.String.
+;; See https://clojure.org/reference/reader#_symbols
+(def env-init {})
+
+
+;; `extend` can enrich environment by assigning variables to their values
+(defn extend [env variables values]
+  ;; we do not yet support special variables like `& args` capturing all the remaining values
+  (if (= (count variables) (count values))
+    (into env (zipmap variables values))
+    (wrong "The number of variables does not match the number of values"
+           [(count variables) (count values)]
+           {:variables variables :values values})))
+
+
+(def my-env (extend env-init '[name title age] ["Juraj" "Programmer" 36]))
+;; => {name "Juraj", title "Programmer", age 36}
+
+(extend my-env '[hobbies website] [["climbing" "reading"] "https://curiousprogrammer.net"])
+;; => {name "Juraj",
+;;     title "Programmer",
+;;     age 36,
+;;     hobbies ["climbing" "reading"],
+;;     website "https://curiousprogrammer.net"}
+
+;; This shouldn't work:
+#_(extend my-env '[hair eyes] ["brown"])
+;; The number of variables does not match the number of values
+;; {:expression [2 1], :rest-args ({:variables [hair eyes], :values ["brown"]})}
