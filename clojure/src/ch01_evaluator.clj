@@ -236,6 +236,7 @@
 
 
 ;; `extend` can enrich environment by assigning variables to their values
+;; - be careful when refering this from somewhere else but there's also `clojure.core/extend`.
 (defn extend [env variables values]
   ;; we do not yet support special variables like `& args` capturing all the remaining values
   (if (= (count variables) (count values))
@@ -277,6 +278,21 @@
     (apply f args)
     (wrong "Not a function" f args)))
 
+;; For `lookup` - we made it too smart by using `resolve` and `var-get`.
+;; We should start with an empty environment and don't allow the usual Clojure functions like `println` to be used.
+;; Going back to the minimalistic implementation of lookup (p. 13)
+(defn lookup [id env]
+  (if-let [[k v] (find env id)]
+    v
+    (wrong "No such binding" id)))
+#_(lookup 'println {})
+;; 1. Unhandled clojure.lang.ExceptionInfo
+;; No such binding
+;; {:expression println, :rest-args nil}
+(lookup 'a '{a 10 b 20})
+;; => 10
+
+
 ;; p.16: evaluating a function comes down to evaluating its body
 ;; in an environment where its variables are bound to the values
 
@@ -285,6 +301,7 @@
 ;;       lambda (make-function (second exp) (nnext exp) env)
 ;; We will try multiple approaches and fix the problems that arise as we go
 
+;; i) Minimal environment
 ;; First, try with 'minimal environment' (i.e. `env-init` - empty env)
 (defn make-function [variables body env]
   (fn [values] ; TODO: does `values` really do what we want??
@@ -297,6 +314,7 @@
 ;; Wrong number of args (2) passed to: ch01-evaluator/make-function/fn--13185
 
 ;; Let's try again with `& values`
+;; notice that `env` is unused which leads to the problem described below.
 (defn make-function [variables body env]
   (fn [& values]
     (eprogn body (extend env-init variables values))))
@@ -305,4 +323,49 @@
  1 2)
 ;; => 1
 
+;; Now the problem with the minimal environment is that we don't have access to the global env,
+;; not even to functions like `cons` and `car` (will add those fns to the global env in section 1.7)
+#_(evaluate '(car 1 '())
+          {})
+;; No such binding
+;; {:expression car, :rest-args nil}
+
+
+
+;; ii) Patched environment:
+;; We will update `make-function` to use the global environment instead of `env-init`
+;; `env` param is still unused and that will cause another problem shortly.
+(def env-global env-init)
+(defn make-function [variables body env]
+  (fn [& values]
+    (eprogn body (extend env-global variables values))))
+
+;; For demo, let's add the `car` function to our global environment:
+(def env-global (assoc env-global 'car first))
+;; This works  but it's not related to `make-function`'s implementation above
+;; because we aren't creating a lambda.
+(evaluate '(car '(1 2 3)) env-global)
+;; => 1
+
+;; This is more relevant - we create a lambda that uses `car`.
+;; That lambda accepts a list as an input arg
+(evaluate '((lambda (a) (car a))
+            '(30 20 10))
+          env-global)
+;; => 30
+
+;; This is all great but we still have a  problem: nested lambdas don't work
+;; The environment of the outer function isn't available to the inner function
+(def env-global (assoc env-global
+                       '+ +
+                       'list list))
+#_(evaluate '((lambda (a)
+                    ;; `a` isn't present in the environment visible to this inner lambda
+                    ((lambda (b) (list a b))
+                     (+ 2 a)))
+            1)
+          env-global)
+;; 1. Unhandled clojure.lang.ExceptionInfo
+;; No such binding
+;; {:expression a, :rest-args nil}
 
