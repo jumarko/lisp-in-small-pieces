@@ -305,4 +305,24 @@
  1 2)
 ;; => 1
 
+;; The drawback of this approach is that the function only has access to a minimal env - env-init
+;; better solution is to extend the *global* env (rather than `env-init`)
+(defn make-function [variables body env]
+  (fn [& values]
+    (eprogn body (extend env variables values))))
 
+((evaluate '(lambda (a b) a)
+           {})
+ 1 2)
+;; => 1
+
+(evaluate '((lambda (a)
+                    ;; `a` isn't present in the environment visible to this inner lambda
+                    ((lambda (b) (list a b))
+                     (+ 2 a)))
+            1)
+          {})
+;; => (1 3)
+;; This doesn't look right - it shouldn't know what `+` is, for instance.
+;; I think this is because the `lookup` function is too intelligent, and
+;; knows about Clojure host functionality (i.e. `+`).
