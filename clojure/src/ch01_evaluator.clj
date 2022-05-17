@@ -307,7 +307,7 @@
 ;; See how Chouser did it: https://github.com/Chouser/lisp-in-small-pieces-clj/blob/main/src/us/chouser/LISP/ch1a.clj#L151-L155
 (def env-global (extend env-global
                   '[list +]
-                  [list
+                  [identity ; list returns the sequence/list it receives as an argument
                    #(apply + %)]))
 
 ;; This is more relevant - we create a lambda that uses `car`.
@@ -426,4 +426,69 @@
                          1)
                        d-env-global)))
 
+;; But we still have a problem - let's look at another example of nested lambdas:
+;; Notice that the outer lambda now returns an inner function without applying it immediately
+;; The issue is that at the time the inner lambda is called, `a` already felt out of scope
+;; and is not present in `current-env`.
+;; `a` is in the scope only when the outer lambda is "being constructed".
+;;
+;; To see this in action, you can try to debug `d-make-function`
+(comment
+  (d-evaluate '(((lambda (a)
+                         (lambda (b) (list a b)))
+                 1)
+                2)
+              d-env-global)
+  ;; No such binding
+  ;; {:expression a, :args nil}
+
+  .)
+
+
+
+
+;; iv) Fixing the Problem:
+;; After the detour in iii), we finally get a proper implementation.
+;; The idea is simple: use the `env` passed as an argument to `make-function`
+;; and pass it further to `eprogn` executed when the defined lambda is called.
+;; The only thing we need to update is `make-function`
+(defn make-function [variables body env]
+  (fn [values]
+    ;; use `env`, not `env-global` here: 
+    (eprogn body (extend env variables values))))
+
+;; NOW IT WORKS!
+(assert (= '(1 2)
+           (evaluate '(((lambda (a)
+                                (lambda (b) (list a b)))
+                        1)
+                       2)
+                     env-global)))
+
+;; also another form of nested lambdas that we fixed with iii)
+(assert (= '(1 3)
+           (evaluate '((lambda (a)
+                                 ;; `a` isn't present in the environment visible to this inner lambda
+                               ((lambda (b) (list a b))
+                                (+ 2 a)))
+                       1)
+                     env-global)))
+
+;; For better understanding, you can apply it only once and inspect the result
+(def my-f (evaluate '((lambda (a)
+                              (lambda (b) (list a b)))
+                      1)
+                    env-global))
+;; with cider-inspect you will see this:
+;; Class: ch01_evaluator$make_function$fn__13478
+;; Value: "#function[ch01-evaluator/make-function/fn--13478]"
+;; ---
+;; Fields:
+;;   "__methodImplCache" = nil
+;;   "body" = ( ( list a b ) )
+;;   "env" = { list clojure.lang.PersistentList$Primordial@5334cdf2, + ch01_evaluator$fn__13407@565b3603, a 1 }
+;;   "variables" = ( b )
+;; Static fields:
+;;   "const__0" = #'ch01-evaluator/eprogn
+;;   "const__1" = #'ch01-evaluator/extend
 
