@@ -166,37 +166,8 @@
 ;; ... and `invoke`
 (defn invoke [f args]
   (if (fn? f)
-    (apply f args)
+    (f args)
     (wrong "Not a function" f args)))
-(invoke inc '(10))
-;; => 11
-
-;; ... and finally we can try it
-(eprogn '((println "I'm first")
-          (println "I'm second")
-          "Finally a value!")
-        {})
-;; These will be printed in the REPL:
-;;   (I'm first)
-;;   (I'm second)
-;; => "Finally a value!"
-
-
-;; what about calling `evaluate` on a sequence? 
-#_(evaluate '(do '(1 2 3) '(4 5 6)) {})
-;; Not a function
-;; ERROR: Unhandled REPL handler exception processing message {:op stacktrace, :nrepl.middleware.print/stream? 1, :nrepl.middleware.print/print cider.nrepl.pprint/pprint, :nrepl.middleware.print/quota 1048576, :nrepl.middleware.print/buffer-size 4096, :nrepl.middleware.print/options {:right-margin 100}, :session 793d408e-4d60-41b4-a7e3-5afdb8601653, :id 994}
-;; clojure.lang.Exception Info: Not a function {:expression 1, :rest-args ((2 3))}
-;; ...
-
-(evaluate '(inc 1) {});; => 
-;; => 2
-
-(evaluate '(begin (inc 1) ) {})
-;; => 2
-
-(evaluate '(begin (inc 1) (println "ahoj") (map inc (range 10))) {})
-;; => (1 2 3 4 5 6 7 8 9 10)
 
 
 ;;; 1.5 Environment (p.12-14)
@@ -250,7 +221,6 @@
            {:var-count (count variables) :val-count (count values)}
            {:env env :variables variables :values values})))
 
-
 (def my-env (extend env-init '[name title age] ["Juraj" "Programmer" 36]))
 ;; => {name "Juraj", title "Programmer", age 36}
 
@@ -280,7 +250,7 @@
 ;; This is due to how Clojure (and many other languages) evaluate arguments - eagerly, from left to right
 (defn invoke [f args]
   (if (fn? f)
-    (apply f args)
+    (f args)
     (wrong "Not a function" f args)))
 
 ;; Previously, we made `lookup` too smart by using `resolve` and `var-get`.
@@ -312,20 +282,19 @@
   (fn [values] ; does `values` really do what we want?? (spoiler: no!)
     (eprogn body (extend env-init variables values))))
 ;; try it!
-#_((evaluate '(lambda (a b) a)
+(evaluate '((lambda (a b) a)
+             1 2)
            {})
- 1 2)
-;; 1. Unhandled clojure.lang.ArityException
-;; Wrong number of args (2) passed to: ch01-evaluator/make-function/fn--13185
+;; => 1
 
 ;; Let's try again with `& values`
 ;; notice that `env` is unused which leads to the problem described below.
 (defn make-function [variables body env]
-  (fn [& values]
+  (fn [values]
     (eprogn body (extend env-init variables values))))
-((evaluate '(lambda (a b) a)
-           {})
- 1 2)
+(evaluate '((lambda (a b) a)
+            1 2)
+          {})
 ;; => 1
 
 ;; Now the problem with the minimal environment is that we don't have access to the global env,
@@ -342,28 +311,21 @@
 ;; `env` param is still unused and that will cause another problem shortly.
 (def env-global env-init)
 (defn make-function [variables body env]
-  (fn [& values]
+  (fn [values]
     (eprogn body (extend env-global variables values))))
 
 ;; For demo, let's add the `car` function to our global environment:
-(def env-global (assoc env-global 'car first))
-;; This works  but it's not related to `make-function`'s implementation above
-;; because we aren't creating a lambda.
-(evaluate '(car '(1 2 3)) env-global)
-;; => 1
-
+(defn my-plus [nums] (apply + nums))
+(def env-global (assoc env-global '+ my-plus))
 ;; This is more relevant - we create a lambda that uses `car`.
-;; That lambda accepts a list as an input arg
-(evaluate '((lambda (a) (car a))
-            '(30 20 10))
+(evaluate '((lambda (a b) (+ a b))
+            30 20)
           env-global)
-;; => 30
+;; => 50
 
 ;; This is all great but we still have a  problem: nested lambdas don't work
 ;; The environment of the outer function isn't available to the inner function
-(def env-global (assoc env-global
-                       '+ +
-                       'list list))
+(def env-global (assoc env-global 'list list))
 #_(evaluate '((lambda (a)
                     ;; `a` isn't present in the environment visible to this inner lambda
                     ((lambda (b) (list a b))
