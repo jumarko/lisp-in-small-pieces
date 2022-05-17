@@ -10,41 +10,96 @@
 ;;; to a step-by-step debugger that could modify the running program.
 
 ;; Solution:
-;; We probably need to redefine make-function to make it work:
-(defn make-function [variables body env]
+;; We probably need to redefine make-function to make it work;
+;; and similarly to `ch01-evaluator.d-evaluate`,
+;; you also need to redefine a bunch of other functions
+(declare trace-evaluate)
+
+(defn trace-eprogn
+  "Evaluates sequence of expressions in given environment."
+  [exps env]
+  (if (list? exps)
+    (let [[fst & rst] exps
+          ;; CHANGE:
+          fst-val (trace-evaluate fst env)]
+      (if (list? rst)
+        ;; CHANGE:
+        (trace-eprogn rst env)
+        fst-val))
+    ()))
+
+(defn trace-make-function [variables body env]
   (fn [values]
     (prn "fn args: " values)
-    (let [result (e/eprogn body (e/extend e/env-global variables values))]
+    (let [result (trace-eprogn body (e/extend env variables values))]
       (prn "fn ret: " result)
       result)))
 
-;; use the new `make-function` inside `evaluate`
-(defn evaluate [exp env]
+(defn trace-evlis [exps env]
+  (if (list? exps)
+    ;; CHANGE:
+    (map #(trace-evaluate % env) exps)
+    ()))
+
+;; use `trace-make-function` inside `trace-evaluate`
+(defn trace-evaluate [exp env]
   (if (e/atom? exp)
     (cond
       (symbol? exp) (e/lookup exp env)
       ((some-fn number? string? char? boolean? vector?) exp) exp
-      :else (e/wrong "Cannot evaluate - unknown atomic expression?" exp))
+      :else (e/wrong "Cannot trace-evaluate - unknown atomic expression?" exp))
 
     (case (first exp)
       quote (second exp)
-      if (if (evaluate (second exp) env)
-           (evaluate (nth exp 2) env)
-           (evaluate (nth exp 3) env))
+      if (if (trace-evaluate (second exp) env)
+           (trace-evaluate (nth exp 2) env)
+           (trace-evaluate (nth exp 3) env))
       begin (e/eprogn (rest exp) env)
-      set! (e/update! (second exp) env (evaluate (nth exp 2) env))
+      set! (e/update! (second exp) env (trace-evaluate (nth exp 2) env))
       ;; Special version of  `make-function` implements the tracing
-      lambda (make-function (second exp) (nnext exp) env)
-      (e/invoke (evaluate (first exp) env)
+      lambda (trace-make-function (second exp) (nnext exp) env)
+      (e/invoke (trace-evaluate (first exp) env)
               (e/evlis (rest exp) env)))))
 
 (assert (= 50
-           (evaluate '((lambda (a b) (+ a b))
-                       30 20)
-                     e/env-global)))
+           (trace-evaluate '((lambda (a b) (+ a b))
+                             30 20)
+                           e/env-global)))
 ;; It should print this in the REPL:
 ;;   "fn args: " (30 20)
 ;;   "fn ret: " 50
 
+(assert (= '(1 2)
+           (trace-evaluate '(((lambda (a)
+                                      (lambda (b) (list a b)))
+                              1)
+                             2)
+                           e/env-global)))
+;; It prints:
+;; "fn args: " (1)
+;; "fn ret: " #function[ch01-exercises/trace-make-function/fn--14593]
+;; "fn args: " (2)
+;; "fn ret: " (1 2)
+
+(assert (= '(1 3)
+           (trace-evaluate '((lambda (a)
+                                     ((lambda (b) (list a b))
+                                      (+ 2 a)))
+                             1)
+                           e/env-global)))
+;; It prints:
+;; "fn args: " (1)
+;; "fn args: " (3)
+;; "fn ret: " (1 3)
+;; "fn ret: " (1 3)
+
+
 
 ;; TODO: how about implementing a very simple debugger??
+(defn trace-make-function [variables body env]
+  (fn [values]
+    (prn "fn args: " values)
+    (let [result (trace-eprogn body (e/extend env variables values))]
+      (prn "fn ret: " result)
+      result)))
+
