@@ -98,6 +98,10 @@
 
 
 (defn trace-make-function
+  "A very simple variant of `trace-make-function` which still prints the args and the return value,
+  but also stops the execution whenever a function is being called
+  and reads the updated environment definition from standard input via `clojure.edn/read-string`.
+  This updated environment is then merged into the current execution environment."
   [variables body env]
   (fn [values]
     (prn "fn args: " (zipmap variables values))
@@ -106,7 +110,7 @@
           _ (prn "Current env: " extended-env)
           user-input (read-line)
           new-env (when-not (str/blank? user-input) (edn/read-string user-input))
-          modified-env (into extended-env new-env)
+          modified-env (merge extended-env new-env)
           result (trace-eprogn body modified-env)]
       (prn "fn ret: " result)
       result)))
