@@ -18,6 +18,7 @@
 
 (deftest evaluate-test
   (testing "evaluate a sequence"
-    (is (= [1 2 3 4 5 6 7 8 9 10] ; just check that the last value is returned - it's harder to check the side effects
-           (evaluate '(begin (inc 1) (println "ahoj") (map inc (range 10)))
-                     {})))))
+    (is (= '(1 2 3) ; just check that the last value is returned - it's harder to check the "side effects" (that is `(+ 1 2)`)
+           ;; functions `+` and `list` are the only ones that are defined as of 1.6 (p. 19)
+           (evaluate '(begin (+ 1 2) (list 1 2 3) )
+                     evaluator/env-global)))))
