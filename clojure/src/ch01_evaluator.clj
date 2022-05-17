@@ -302,18 +302,22 @@
   (fn [values]
     (eprogn body (extend env-global variables values))))
 
-;; For demo, let's add the `car` function to our global environment:
-(defn my-plus [nums] (apply + nums))
-(def env-global (assoc env-global '+ my-plus))
+;; For demo, let's add the `+` to our global env.
+;; Adding custom functions to the env is a bit tricky at this point
+;; See how Chouser did it: https://github.com/Chouser/lisp-in-small-pieces-clj/blob/main/src/us/chouser/LISP/ch1a.clj#L151-L155
+(def env-global (extend env-global
+                  '[list +]
+                  [list
+                   #(apply + %)]))
+
 ;; This is more relevant - we create a lambda that uses `car`.
-(evaluate '((lambda (a b) (+ a b))
-            30 20)
-          env-global)
-;; => 50
+(assert (= 50
+           (evaluate '((lambda (a b) (+ a b))
+                       30 20)
+                     env-global)))
 
 ;; This is all great but we still have a  problem: nested lambdas don't work
 ;; The environment of the outer function isn't available to the inner function
-(def env-global (assoc env-global 'list list))
 #_(evaluate '((lambda (a)
                     ;; `a` isn't present in the environment visible to this inner lambda
                     ((lambda (b) (list a b))
@@ -334,92 +338,92 @@
 ;; To avoid confusion with previous definitions we well use new names with `d-` prefix
 ;; (this is also used because the solution won't be the final one that we'll use)
 
+;; `d-make-function` calls `eprogn` - they don't mention this in the book,
+;; but I think we need to update `eprogn` too because it also calls `evaluate` - see below. 
+(declare d-evaluate)
+(defn d-eprogn
+  "Evaluates sequence of expressions in given environment."
+  [exps env]
+  (if (list? exps)
+    (let [[fst & rst] exps
+          ;; CHANGE:
+          fst-val (d-evaluate fst env)]
+      (if (list? rst)
+        ;; CHANGE:
+        (d-eprogn rst env)
+        fst-val))
+    ()))
+
+;; ... and `evlist` call in `d-evaluate` calls `evaluate`
+;; so we need to redefine that too
+(defn d-evlis [exps env]
+  (if (list? exps)
+    ;; CHANGE:
+    (map #(d-evaluate % env) exps)
+    ()))
+
+
 ;; `d-invoke`, unlike `invoke` accepts an environment as 3rd argument
 (defn d-invoke [f args env]
   (if (fn? f)
-    ;; In Scheme, they simply had `(f args env)` - I'm not sure how that worked,
-    ;; but in clojure we need to use `apply` to apply the function to `args` and add `env` as the last element of `args`.
-    (apply f (conj (vec args) env))
+    (f args env)
     (wrong "Not a function" f args)))
 
 ;; Notice how we have two environments here:
 ;; - `def-env` is the environment at the time the function is defined/created - it's not used here at all
 ;; - `current-env` is the environment at the time the function is called - this is the one we are using
 (defn d-make-function [variables body def-env]
-  ;; here we need to extract the env arg as the last value in `values`
   ;; I'm wondering how does Scheme makes it work out of the box as in `(lambda (values current.env))`
-  (fn [& values]
-    (let [current-env (last values)]
-      ;; here we pass only `current-env` received as an argument of our function;
-      ;; we don't use `def-env` at all
-      ;; note: here we must drop the last argument from `values` which is `current-env` itself
-      (eprogn body (extend current-env variables (butlast values))))))
+  (fn [values current-env]
+    (d-eprogn body (extend current-env variables values))))
+
+;; Note: `d-make-function` calls `eprogn` - they don't mention this in the book,
+;; but I think we need to update `eprogn` too because it also calls `evaluate` - see below. 
 
 ;; Inside `evaluate`, we only change the way `invoke` is called - adding `env` as an extra parameter
 (defn d-evaluate [exp env]
   (if (atom? exp)
     (cond
       (symbol? exp) (lookup exp env)
-      ;; Notice that `keyword?` isn't here because keywords are Clojure's thing
-      ;; and aren't present in the Lisp we are trying to implement
       ((some-fn number? string? char? boolean? vector?) exp) exp
       :else (wrong "Cannot evaluate - unknown atomic expression?" exp))
 
-    ;; we use `first` instead of `car`
     (case (first exp)
       quote (second exp)
-      ;; (p.8) we gloss over the fact that in `(if pred)` we use boolean semantics
-      ;; of the implementation language (Clojure - which means `nil` will be falsy);
-      ;; more precisely, we should write `(if-not (= the-false-value (evaluate (second exp) env)))
-      if (if (evaluate (second exp) env)
-           (evaluate (nth exp 2) env)
-           (evaluate (nth exp 3) env))
-      begin (eprogn (rest exp) env)
-      set! (update! (second exp) env (evaluate (nth exp 2) env))
+      if (if (d-evaluate (second exp) env)
+           (d-evaluate (nth exp 2) env)
+           (d-evaluate (nth exp 3) env))
+      begin (d-eprogn (rest exp) env)
+      set! (update! (second exp) env (d-evaluate (nth exp 2) env))
       ;; CHANGE: call `d-make-function` instead of `make-function`
       lambda (d-make-function (second exp) (nnext exp) env)
-      ;; it's not a special form, just ordinary function => call it!
       ;; CHANGE: call `d-invoke` instead of `invoke` and also `d-evaluate`
       (d-invoke (d-evaluate (first exp) env)
-              (evlis (rest exp) env)
+              (d-evlis (rest exp) env)
               ;; CHANGE: env is passed in as a new argument
               env))))
 
-;; now try a simple example
-(d-evaluate '((lambda (a) (car a))
-            '(30 20 10))
-          env-global)
-;; ... the first time I tried this I got an error
-   ;; The number of variables does not match the number of values
-   ;; {:expression {:var-count 1, :val-count 2},
-   ;;  :args
-   ;;  ({:env
-   ;;    {car #function[clojure.core/first--5449],
-   ;;     + #function[clojure.core/+],
-   ;;     list #function[clojure.lang.PersistentList/Primordial]},
-   ;;    :variables (a),
-   ;;    :values
-   ;;    ((30 20 10)
-   ;;     {car #function[clojure.core/first--5449],
-   ;;      + #function[clojure.core/+],
-   ;;      list #function[clojure.lang.PersistentList/Primordial]})})}
-   ;;      ch01_evaluator.clj:   61  ch01-evaluator/wrong
-   ;;      ch01_evaluator.clj:   60  ch01-evaluator/wrong
-   ;;             RestFn.java:  442  clojure.lang.RestFn/invoke
-   ;;      ch01_evaluator.clj:  249  ch01-evaluator/extend
-   ;;      ch01_evaluator.clj:  245  ch01-evaluator/extend
-   ;;      ch01_evaluator.clj:  406  ch01-evaluator/d-make-function/fn
-   ;;             RestFn.java:  137  clojure.lang.RestFn/applyTo
-   ;;                core.clj:  667  clojure.core/apply
-   ;;                core.clj:  662  clojure.core/apply
-   ;;      ch01_evaluator.clj:  392  ch01-evaluator/d-invoke
-   ;;      ch01_evaluator.clj:  388  ch01-evaluator/d-invoke
-   ;;      ch01_evaluator.clj:  433  ch01-evaluator/d-evaluate
-   ;;      ch01_evaluator.clj:  409  ch01-evaluator/d-evaluate
+;; Adding custom functions to the env is a bit tricky at this point
+;; See how Chouser did it: https://github.com/Chouser/lisp-in-small-pieces-clj/blob/main/src/us/chouser/LISP/ch1a.clj#L216-L220
+(def d-env-global (extend env-global
+                    '[list +]
+                    [(fn [args env] args)
+                     (fn [args env] (apply + args))]))
 
-;; ... the fix was to use `butlast` to remove `current-env` from the list of all args
-;; when calling the function created via `d-make-function`.
-(d-evaluate '((lambda (a) (car a))
-              '(30 20 10))
-            env-global)
-;; => 30
+;; just check that a simple example still works
+(assert (= 50
+           (d-evaluate '((lambda (a b) (+ a b))
+                         30 20)
+                       d-env-global)))
+
+;; BUT the main point is to verify that the example not working before
+;; works now without problems:
+(assert (= '(1 3)
+           (d-evaluate '((lambda (a)
+                                 ;; `a` isn't present in the environment visible to this inner lambda
+                                 ((lambda (b) (list a b))
+                                  (+ 2 a)))
+                         1)
+                       d-env-global)))
+
+
