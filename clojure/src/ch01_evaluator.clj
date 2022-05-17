@@ -1,6 +1,10 @@
 (ns ch01-evaluator
   "Chapter 1: Basic evaluator.
-  Starts with section 1.2 on p. 4.")
+  Starts with section 1.2 on p. 4.
+
+  Naming note: they sometimes use symbols like `env.init` and `d.invoke`.
+  We can't do that in Clojure because '.' has a special meaning in symbols.
+  Instead, we simply replace it with dash, as with `env-init`.")
 
 ;;; 1.2 (p.4): define `evaluate` signature
 (defn evaluate [exp env])
@@ -54,7 +58,7 @@
 ;; and are represented by their values
 ;; Note: we define our own `wrong` function here
 (defn wrong [msg exp & args]
-  (throw (ex-info msg {:expression exp :rest-args args})))
+  (throw (ex-info msg {:expression exp :args args})))
 
 (defn evaluate [exp env]
   (if (atom? exp)
@@ -236,14 +240,15 @@
 
 
 ;; `extend` can enrich environment by assigning variables to their values
-;; - be careful when refering this from somewhere else but there's also `clojure.core/extend`.
+;; - be careful when referring to this from somewhere else
+;;   because there's also `clojure.core/extend` which is shadowed by `extend`
 (defn extend [env variables values]
   ;; we do not yet support special variables like `& args` capturing all the remaining values
   (if (= (count variables) (count values))
     (into env (zipmap variables values))
     (wrong "The number of variables does not match the number of values"
-           [(count variables) (count values)]
-           {:variables variables :values values})))
+           {:var-count (count variables) :val-count (count values)}
+           {:env env :variables variables :values values})))
 
 
 (def my-env (extend env-init '[name title age] ["Juraj" "Programmer" 36]))
@@ -278,9 +283,9 @@
     (apply f args)
     (wrong "Not a function" f args)))
 
-;; For `lookup` - we made it too smart by using `resolve` and `var-get`.
-;; We should start with an empty environment and don't allow the usual Clojure functions like `println` to be used.
-;; Going back to the minimalistic implementation of lookup (p. 13)
+;; Previously, we made `lookup` too smart by using `resolve` and `var-get`.
+;; We should start with an empty environment and not allow the usual Clojure functions like `println` to be used.
+;; Let's start again with the minimalistic implementation of lookup (p. 13):
 (defn lookup [id env]
   (if-let [[k v] (find env id)]
     v
@@ -304,7 +309,7 @@
 ;; i) Minimal environment
 ;; First, try with 'minimal environment' (i.e. `env-init` - empty env)
 (defn make-function [variables body env]
-  (fn [values] ; TODO: does `values` really do what we want??
+  (fn [values] ; does `values` really do what we want?? (spoiler: no!)
     (eprogn body (extend env-init variables values))))
 ;; try it!
 #_((evaluate '(lambda (a b) a)
@@ -369,3 +374,102 @@
 ;; No such binding
 ;; {:expression a, :rest-args nil}
 
+
+
+;; iii) Improving the patch: so we can see the outer variables in the inner functions
+;; Our, quick and naive, solution is to just pass the current environment
+;; to `invoke` which then passes it to the functions being invoked.
+;; In both cases, the env is passed as the last argument.
+;; We'll redefine `evaluate`, `make-function`, and `invoke`.
+;; To avoid confusion with previous definitions we well use new names with `d-` prefix
+;; (this is also used because the solution won't be the final one that we'll use)
+
+;; `d-invoke`, unlike `invoke` accepts an environment as 3rd argument
+(defn d-invoke [f args env]
+  (if (fn? f)
+    ;; In Scheme, they simply had `(f args env)` - I'm not sure how that worked,
+    ;; but in clojure we need to use `apply` to apply the function to `args` and add `env` as the last element of `args`.
+    (apply f (conj (vec args) env))
+    (wrong "Not a function" f args)))
+
+;; Notice how we have two environments here:
+;; - `def-env` is the environment at the time the function is defined/created - it's not used here at all
+;; - `current-env` is the environment at the time the function is called - this is the one we are using
+(defn d-make-function [variables body def-env]
+  ;; here we need to extract the env arg as the last value in `values`
+  ;; I'm wondering how does Scheme makes it work out of the box as in `(lambda (values current.env))`
+  (fn [& values]
+    (let [current-env (last values)]
+      ;; here we pass only `current-env` received as an argument of our function;
+      ;; we don't use `def-env` at all
+      ;; note: here we must drop the last argument from `values` which is `current-env` itself
+      (eprogn body (extend current-env variables (butlast values))))))
+
+;; Inside `evaluate`, we only change the way `invoke` is called - adding `env` as an extra parameter
+(defn d-evaluate [exp env]
+  (if (atom? exp)
+    (cond
+      (symbol? exp) (lookup exp env)
+      ;; Notice that `keyword?` isn't here because keywords are Clojure's thing
+      ;; and aren't present in the Lisp we are trying to implement
+      ((some-fn number? string? char? boolean? vector?) exp) exp
+      :else (wrong "Cannot evaluate - unknown atomic expression?" exp))
+
+    ;; we use `first` instead of `car`
+    (case (first exp)
+      quote (second exp)
+      ;; (p.8) we gloss over the fact that in `(if pred)` we use boolean semantics
+      ;; of the implementation language (Clojure - which means `nil` will be falsy);
+      ;; more precisely, we should write `(if-not (= the-false-value (evaluate (second exp) env)))
+      if (if (evaluate (second exp) env)
+           (evaluate (nth exp 2) env)
+           (evaluate (nth exp 3) env))
+      begin (eprogn (rest exp) env)
+      set! (update! (second exp) env (evaluate (nth exp 2) env))
+      ;; CHANGE: call `d-make-function` instead of `make-function`
+      lambda (d-make-function (second exp) (nnext exp) env)
+      ;; it's not a special form, just ordinary function => call it!
+      ;; CHANGE: call `d-invoke` instead of `invoke` and also `d-evaluate`
+      (d-invoke (d-evaluate (first exp) env)
+              (evlis (rest exp) env)
+              ;; CHANGE: env is passed in as a new argument
+              env))))
+
+;; now try a simple example
+(d-evaluate '((lambda (a) (car a))
+            '(30 20 10))
+          env-global)
+;; ... the first time I tried this I got an error
+   ;; The number of variables does not match the number of values
+   ;; {:expression {:var-count 1, :val-count 2},
+   ;;  :args
+   ;;  ({:env
+   ;;    {car #function[clojure.core/first--5449],
+   ;;     + #function[clojure.core/+],
+   ;;     list #function[clojure.lang.PersistentList/Primordial]},
+   ;;    :variables (a),
+   ;;    :values
+   ;;    ((30 20 10)
+   ;;     {car #function[clojure.core/first--5449],
+   ;;      + #function[clojure.core/+],
+   ;;      list #function[clojure.lang.PersistentList/Primordial]})})}
+   ;;      ch01_evaluator.clj:   61  ch01-evaluator/wrong
+   ;;      ch01_evaluator.clj:   60  ch01-evaluator/wrong
+   ;;             RestFn.java:  442  clojure.lang.RestFn/invoke
+   ;;      ch01_evaluator.clj:  249  ch01-evaluator/extend
+   ;;      ch01_evaluator.clj:  245  ch01-evaluator/extend
+   ;;      ch01_evaluator.clj:  406  ch01-evaluator/d-make-function/fn
+   ;;             RestFn.java:  137  clojure.lang.RestFn/applyTo
+   ;;                core.clj:  667  clojure.core/apply
+   ;;                core.clj:  662  clojure.core/apply
+   ;;      ch01_evaluator.clj:  392  ch01-evaluator/d-invoke
+   ;;      ch01_evaluator.clj:  388  ch01-evaluator/d-invoke
+   ;;      ch01_evaluator.clj:  433  ch01-evaluator/d-evaluate
+   ;;      ch01_evaluator.clj:  409  ch01-evaluator/d-evaluate
+
+;; ... the fix was to use `butlast` to remove `current-env` from the list of all args
+;; when calling the function created via `d-make-function`.
+(d-evaluate '((lambda (a) (car a))
+              '(30 20 10))
+            env-global)
+;; => 30
