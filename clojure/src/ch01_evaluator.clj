@@ -17,22 +17,15 @@
 ;; they define atom as anything that's not a "pair" (cons cell)
 ;; - we use `list?` for Clojure which should be good enough
 (def atom? (complement list?))
-(atom? 1)
-;; => true
-(atom? "ahoj")
-;; => true
-(atom? \c)
-;; => true
-(atom? '(1 2 3))
-;; => false
-;; TODO: notice that other composite data structures like vectors are considered atoms!
-(atom? [1 2 3])
-;; => true
-(atom? {1 2 3 4})
-;; => true
+(assert (true? (atom? 1)))
+(assert (true? (atom? "ahoj")))
+(assert (true? (atom? \c)))
+(assert (false? (atom? '(1 2 3))))
+;; TODO: notice that vectors are considered atoms!
+(assert (true? (atom? [1 2 3])))
+(assert (true? (atom? {1 2 10 20})))
 ;; while keywords are not really supported by our language's evaluate function we consider them atomic
-(atom? :atomic)
-;; => true
+(assert (true? (atom? :atomic)))
 
 (defn evaluate [exp env]
   (if (atom? exp)
@@ -70,12 +63,9 @@
     ;; we use `first` instead of `car`
     (case (first exp))))
 
-(evaluate 1 {})
-;; => 1
-(evaluate "ahoj" {})
-;; => "ahoj"
-(evaluate [1 2 3] {})
-;; => [1 2 3]
+(assert (= 1 (evaluate 1 {})))
+(assert (= "ahoj" (evaluate "ahoj" {})))
+(assert (= [1 2 3] (evaluate [1 2 3] {})))
 
 ;;; 1.4 Evaluating forms (p. 6 - 12)
 ;;; Discusses "special forms" like quote, if, set!, lambda, begin
@@ -199,9 +189,8 @@
                                                :env env
                                                :value value})))
 
-(evaluate '(set! x 1) {})
-;; => {x 1}
-
+(assert (= '{x 1}
+           (evaluate '(set! x 1) {})))
 
 ;; An empty environment.
 ;; Note: in the book they use the name `env.init` but that has a special meaning in Clojure.
@@ -264,9 +253,8 @@
 ;; 1. Unhandled clojure.lang.ExceptionInfo
 ;; No such binding
 ;; {:expression println, :rest-args nil}
-(lookup 'a '{a 10 b 20})
-;; => 10
-
+(assert (= 10
+           (lookup 'a '{a 10 b 20})))
 
 ;; p.16: evaluating a function comes down to evaluating its body
 ;; in an environment where its variables are bound to the values
@@ -282,10 +270,10 @@
   (fn [values] ; does `values` really do what we want?? (spoiler: no!)
     (eprogn body (extend env-init variables values))))
 ;; try it!
-(evaluate '((lambda (a b) a)
-             1 2)
-           {})
-;; => 1
+(assert (= 1
+           (evaluate '((lambda (a b) a)
+                       1 2)
+                     {})))
 
 ;; Let's try again with `& values`
 ;; notice that `env` is unused which leads to the problem described below.
