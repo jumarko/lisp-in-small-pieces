@@ -331,6 +331,9 @@
 
 
 ;; iii) Improving the patch: so we can see the outer variables in the inner functions
+;; This corresponds to a **dynamic Lisp**.
+;; See also Chouser's solution for this section: https://github.com/Chouser/lisp-in-small-pieces-clj/blob/main/src/us/chouser/LISP/ch1a.clj#L177
+;;
 ;; Our, quick and naive, solution is to just pass the current environment
 ;; to `invoke` which then passes it to the functions being invoked.
 ;; In both cases, the env is passed as the last argument.
@@ -492,3 +495,62 @@
 ;;   "const__0" = #'ch01-evaluator/eprogn
 ;;   "const__1" = #'ch01-evaluator/extend
 
+
+
+;;; 1.6.1 Dynamic and Lexical Binding (p.19-23
+;;; In the previous section, we have seen a *dynamic* lisp
+;;; in the subsection "Improving the patch".
+;;; A dynamic Lisp, uses the current environment of the function being applied
+;;; to determine the values of variables - the outer function,
+;;; must extend its current execution environment with the values of its variables
+;;; _at the time of application_.
+;;; On the other hand, a *lexical* Lisp extends the environment passed in
+;;; _at the time of definition_ (i.e. when the function is being created/defined).
+
+;; This example works only in a dynamic Lisp!
+;; `foo` wouldn't normally see the value of `y` but it can see it when executed from within `bar`
+(def y 0)
+(defn foo [x] (list x y))
+(defn bar [y] (foo 1991))
+;; You can see that Clojure is a lexical Lisp
+(list (bar 100) (foo 3))
+;; => ((1991 0) (3 0))
+;; In a dynamic Lisp, the value of y visible from within `foo` would be 100,
+;; so it would return ((1991 100) (3 0))
+
+
+;; Historic note: Lisp 1.0 was defined as a dynamic Lisp,
+;; but early on, John McCarthy realized that the following expression
+;; should return (2 3) but instead it returned (1 3)
+;; because a was 1 in current-env at the time of the function application
+(comment
+  (let ((a 1))
+    ;; after this block completed, the a->2 binding fell out of scope,
+    ;; so a was 1 and thus the inner lambda returned (1 3)
+    ((let ((a 2))
+       (lambda  (b) (list a b))))
+    3)
+.)
+;; to mitigate this, they introduced a new special form `function`,
+;; whose argument is `lambda` and it returns a proper closure,
+;; that is "a function associated with its definition environment".
+
+;; In the book, on p.21-22 they show how to extend `d-evaluate`
+;; with `d-make-closure` but I'm not adding  a fully-working example here
+;; because it's not something we'll need
+;; Here I only include `d-make-closure` definition and a fragment of its usage inside hypothetical `d-evaluate`
+(defn d-make-closure [fun env]
+  ;; notice how `current-env` isn't used at all and instead it uses the definition environment
+  (fn [values current-env]
+    (fun values env)))
+;; how it could be used inside `d-evaluate`
+(comment
+  (defn d-evaluate [exp env]
+    (case (first exp)
+      ,,,
+      function (let [[_ [[args body]]] (second exp)
+                     fun (d-make-function args body)]
+                 (d-make-closure fun env))
+      lambda (d-make-function (second exp) (nnext exp) env)))
+  
+  .)
