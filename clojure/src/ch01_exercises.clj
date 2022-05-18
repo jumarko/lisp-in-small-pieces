@@ -1,7 +1,9 @@
 (ns ch01-exercises
   "Chapter 1 exercises listed on the p.28-29."
   (:require
-   [ch01-evaluator :as e]))
+   [ch01-evaluator :as e]
+   [clojure.edn :as edn]
+   [clojure.string :as str]))
 
 
 ;;; Exercise 1.1: Modify the function `evaluate` so it becomes a tracer.
@@ -95,11 +97,31 @@
 
 
 
-;; TODO: how about implementing a very simple debugger??
-(defn trace-make-function [variables body env]
+(defn trace-make-function
+  "A very simple variant of `trace-make-function` which still prints the args and the return value,
+  but also stops the execution whenever a function is being called
+  and reads the updated environment definition from standard input via `clojure.edn/read-string`.
+  This updated environment is then merged into the current execution environment."
+  [variables body env]
   (fn [values]
-    (prn "fn args: " values)
-    (let [result (trace-eprogn body (e/extend env variables values))]
+    (prn "fn args: " (zipmap variables values))
+    (println "You can redefine the environment however you like - use well-formed Clojure code.")
+    (let [extended-env (e/extend env variables values)
+          _ (prn "Current env: " extended-env)
+          user-input (read-line)
+          new-env (when-not (str/blank? user-input) (edn/read-string user-input))
+          modified-env (merge extended-env new-env)
+          result (trace-eprogn body modified-env)]
       (prn "fn ret: " result)
       result)))
 
+;; Now try to modify the bindings - for example,
+;; enter '{a 10}' for the first prompt and just empty input for the second prompt
+(comment 
+  (trace-evaluate '((lambda (a)
+                            ((lambda (b) (list a b))
+                             (+ 2 a)))
+                    1)
+                  e/env-global)
+  ;;=> (10 12)
+  .)
