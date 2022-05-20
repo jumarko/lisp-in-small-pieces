@@ -669,3 +669,69 @@
 
 
   )
+
+
+;; p18 - we now define  a few useful constants
+(defn define-constants []
+  (definitial t true)
+  (definitial f false)
+  (definitial nil nil))
+env-global
+;; => {}
+(define-constants)
+env-global
+;; => {t true, f false, nil nil}
+
+(evaluate '(if t 1 0) env-global)
+;; => 1
+
+;; bindings such as `t` and `f` representing basic constants are good
+;; but it can lead to subtle errors - shadowing such bindings it's very easy.
+;; Consider this example:
+(evaluate '((lambda (t) (if t 1 0))
+            false)
+           env-global)
+;; `t` is false?!
+;; => 0
+
+;; Btw. does Clojure allows shadowing true, false et al?
+;; => No!
+#_((fn [true] true)
+ false)
+;;    Call to clojure.core/fn did not conform to spec.
+
+;; ... so another approach is to lock immutability of t and f in the interpreter
+(defn evaluate [exp env]
+  (if (atom? exp)
+    (cond
+      (= 't exp) true
+      (= 'f exp) false
+      (symbol? exp) (lookup exp env)
+      ;; Notice that `keyword?` isn't here because keywords are Clojure's thing
+      ;; and aren't present in the Lisp we are trying to implement
+      ((some-fn number? string? char? boolean? vector?) exp) exp
+      :else (wrong "Cannot evaluate - unknown atomic expression?" exp))
+
+    ;; we use `first` instead of `car`
+    (case (first exp)
+      quote (second exp)
+      ;; (p.8) we gloss over the fact that in `(if pred)` we use boolean semantics
+      ;; of the implementation language (Clojure - which means `nil` will be falsy);
+      ;; more precisely, we should write `(if-not (= the-false-value (evaluate (second exp) env)))
+      if (if (evaluate (second exp) env)
+           (evaluate (nth exp 2) env)
+           (evaluate (nth exp 3) env))
+      begin (eprogn (rest exp) env)
+      set! (update! (second exp) env (evaluate (nth exp 2) env))
+      lambda (make-function (second exp) (nnext exp) env)
+      ;; it's not a special form, just ordinary function => call it!
+      (invoke (evaluate (first exp) env)
+              (evlis (rest exp) env)))))
+
+;; ... now the true is true regardless of what local binding we use
+;; - not saying that can't be confusing either
+(evaluate '((lambda (t) (if t 1 0))
+            false)
+           env-global)
+;; => 1
+
