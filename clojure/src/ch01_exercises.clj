@@ -128,3 +128,27 @@
                   e/env-global)
   ;;=> (10 12)
   .)
+
+
+
+;;; Ex. 1.2: Eliminate needless recursion in `e/evlis`  when the input list contains only one expression.
+
+;; I used `map` to simplify definition of `e/evlis` before.
+;; Let's now reimplement it using recursion
+(defn evlis
+  ([exps env]
+   (evlis [] exps env))
+  ([result exps env]
+   (if-let [s (seq exps)]
+     (recur (conj result (e/evaluate (first exps) env))
+            (rest s)
+            env)
+     result)))
+
+(assert (= [1 '(2 3) [10 20] '(1 2 3)]
+           (evlis '(1
+                    (quote (2 3))
+                    [10 20]
+                    (cons 1 [2 3]))
+                  e/env-global)))
+
