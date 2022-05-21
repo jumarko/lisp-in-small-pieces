@@ -669,3 +669,151 @@
 
 
   )
+
+
+;; p28 - we now define  a few useful constants
+(defn define-constants []
+  (definitial t true)
+  (definitial f false)
+  (definitial nil nil))
+env-global
+;; => {}
+(define-constants)
+env-global
+;; => {t true, f false, nil nil}
+
+(evaluate '(if t 1 0) env-global)
+;; => 1
+
+;; bindings such as `t` and `f` representing basic constants are good
+;; but it can lead to subtle errors - shadowing such bindings it's very easy.
+;; Consider this example:
+(evaluate '((lambda (t) (if t 1 0))
+            false)
+           env-global)
+;; `t` is false?!
+;; => 0
+
+;; Btw. does Clojure allows shadowing true, false et al?
+;; => No!
+#_((fn [true] true)
+ false)
+;;    Call to clojure.core/fn did not conform to spec.
+
+;; ... so another approach is to lock immutability of t and f in the interpreter
+(defn evaluate [exp env]
+  (if (atom? exp)
+    (cond
+      (= 't exp) true
+      (= 'f exp) false
+      (symbol? exp) (lookup exp env)
+      ;; Notice that `keyword?` isn't here because keywords are Clojure's thing
+      ;; and aren't present in the Lisp we are trying to implement
+      ((some-fn number? string? char? boolean? vector?) exp) exp
+      :else (wrong "Cannot evaluate - unknown atomic expression?" exp))
+
+    ;; we use `first` instead of `car`
+    (case (first exp)
+      quote (second exp)
+      ;; (p.8) we gloss over the fact that in `(if pred)` we use boolean semantics
+      ;; of the implementation language (Clojure - which means `nil` will be falsy);
+      ;; more precisely, we should write `(if-not (= the-false-value (evaluate (second exp) env)))
+      if (if (evaluate (second exp) env)
+           (evaluate (nth exp 2) env)
+           (evaluate (nth exp 3) env))
+      begin (eprogn (rest exp) env)
+      set! (update! (second exp) env (evaluate (nth exp 2) env))
+      lambda (make-function (second exp) (nnext exp) env)
+      ;; it's not a special form, just ordinary function => call it!
+      (invoke (evaluate (first exp) env)
+              (evlis (rest exp) env)))))
+
+;; ... now the true is true regardless of what local binding we use
+;; - not saying that can't be confusing either
+(evaluate '((lambda (t) (if t 1 0))
+            false)
+           env-global)
+;; => 1
+
+
+;; now define some random variables that Lispers typically use :) (p.27)
+(defn setup-vars []
+  (definitial foo)
+  (definitial bar)
+  (definitial fib)
+  (definitial fact))
+(setup-vars)
+;; => {t true,
+;;     f false,
+;;     nil nil,
+;;     foo :ch01-evaluator/void,
+;;     bar :ch01-evaluator/void,
+;;     fib :ch01-evaluator/void,
+;;     fact :ch01-evaluator/void}env-global
+
+
+;; Finally, define a few useful library functions
+(defn stdlib []
+  (defprimitive cons cons 2)
+  (defprimitive car first 1)
+  ;; set-cdr! function is more complicated because it actually mutates the list
+  ;; consider this example from mit-scheme implementation:
+  ;;
+  ;;     (define x '(1 2 3))
+  ;;
+  ;;     x
+  ;;     ;Value: (1 2 3)
+
+  ;;     (set-cdr! x '(20 30))
+  ;;     ;Unspecified return value
+  ;;
+  ;;     x
+  ;;     ;Value: (1 20 30)
+  ;; For now, we simply ignore the mutability aspect and return a modified copy
+  (defprimitive set-cdr! (fn [xs new-rst] (cons (first xs) new-rst)) 2)
+  (defprimitive + + 2)
+  (defprimitive eq? = 2)
+  (defprimitive < < 2))
+(stdlib)
+;; => {nil nil,
+;;     t true,
+;;     < #function[ch01-evaluator/stdlib/fn--21746/fn--21747],
+;;     cons #function[ch01-evaluator/stdlib/fn--21726/fn--21727],
+;;     fib :ch01-evaluator/void,
+;;     set-cdr! #function[ch01-evaluator/stdlib/fn--21734/fn--21735],
+;;     car #function[ch01-evaluator/stdlib/fn--21730/fn--21731],
+;;     bar :ch01-evaluator/void,
+;;     fact :ch01-evaluator/void,
+;;     + #function[ch01-evaluator/stdlib/fn--21738/fn--21739],
+;;     eq? #function[ch01-evaluator/stdlib/fn--21742/fn--21743],
+;;     foo :ch01-evaluator/void,
+;;     f false}
+
+(comment
+  ;; with empty env it doesn't work:
+  (evaluate '(cons 1 [2 3]) {})
+  ;; No such binding
+  ;; {:expression cons, :args nil}
+  ;; but it's in the global env
+  (evaluate '(cons 1 [2 3]) env-global)
+  ;; => (1 2 3)
+
+  (evaluate '(car [1 2 3]) env-global)
+  ;; => 1
+
+
+  (evaluate '(set-cdr! [1 2 3] [20 30]) env-global)
+  ;; => (1 20 30)
+
+  (evaluate '(+ 10 100) env-global)
+  ;; => 110
+
+  (evaluate '(eq? '(1 2) [1 2 3]) env-global)
+  ;; => false
+  (evaluate '(eq? '(1 2 3) [1 2 3]) env-global)
+  ;; => true
+
+  (evaluate '(< 2 3) env-global)
+  ;; => true
+
+  .)
