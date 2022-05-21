@@ -71,12 +71,15 @@
 ;;   "fn args: " (30 20)
 ;;   "fn ret: " 50
 
+(def my-env (assoc e/env-global
+                   ;; see ch01-evaluate (env-global definition on the line 308)
+                   'list identity))
 (assert (= '(1 2)
            (trace-evaluate '(((lambda (a)
                                       (lambda (b) (list a b)))
                               1)
                              2)
-                           e/env-global)))
+                           my-env)))
 ;; It prints:
 ;; "fn args: " (1)
 ;; "fn ret: " #function[ch01-exercises/trace-make-function/fn--14593]
@@ -88,7 +91,7 @@
                                      ((lambda (b) (list a b))
                                       (+ 2 a)))
                              1)
-                           e/env-global)))
+                           my-env)))
 ;; It prints:
 ;; "fn args: " (1)
 ;; "fn args: " (3)
@@ -125,3 +128,54 @@
                   e/env-global)
   ;;=> (10 12)
   .)
+
+
+
+;;; Ex. 1.2: Eliminate needless recursion in `e/evlis`  when the input list contains only one expression.
+
+;; I used `map` to simplify definition of `e/evlis` before.
+;; Let's now reimplement it using recursion
+(defn evlis
+  ([exps env]
+   (evlis [] exps env))
+  ([result exps env]
+   (println "evlis called with exps:" exps)
+   (if-let [s (seq exps)]
+     (recur (conj result (e/evaluate (first exps) env))
+            (rest s)
+            env)
+     result)))
+
+;; check that it works:
+(assert (= [1 '(2 3) [10 20] '(1 2 3)]
+           (evlis '(1
+                    (quote (2 3))
+                    [10 20]
+                    (cons 1 [2 3]))
+                  e/env-global)))
+
+;; does it still recur when evaluating only one item?
+(evlis '((cons 1 [2 3]))
+       e/env-global)
+;; evlis called with exps: ((cons 1 [2 3]))
+;; evlis called with exps: ()
+
+;; eliminating unnecessary recursion
+(defn evlis
+  ([exps env] (evlis [] exps env))
+  ([result exps env]
+   (println "evlis called with exps:" exps)
+   (let [s (seq exps)]
+     (cond
+       (not s) result
+
+       (= 1 (bounded-count 2 s)) (conj result (e/evaluate (first exps) env))
+
+       :else (recur (conj result (e/evaluate (first exps) env))
+                    (rest s)
+                    env)))))
+(assert (= ['(1 2 3)]
+           (evlis '((cons 1 [2 3]))
+                  e/env-global)))
+;; evlis called with exps: ((cons 1 [2 3]))
+
