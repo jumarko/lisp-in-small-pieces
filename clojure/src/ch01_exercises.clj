@@ -71,12 +71,15 @@
 ;;   "fn args: " (30 20)
 ;;   "fn ret: " 50
 
+(def my-env (assoc e/env-global
+                   ;; see ch01-evaluate (env-global definition on the line 308)
+                   'list identity))
 (assert (= '(1 2)
            (trace-evaluate '(((lambda (a)
                                       (lambda (b) (list a b)))
                               1)
                              2)
-                           e/env-global)))
+                           my-env)))
 ;; It prints:
 ;; "fn args: " (1)
 ;; "fn ret: " #function[ch01-exercises/trace-make-function/fn--14593]
@@ -88,7 +91,7 @@
                                      ((lambda (b) (list a b))
                                       (+ 2 a)))
                              1)
-                           e/env-global)))
+                           my-env)))
 ;; It prints:
 ;; "fn args: " (1)
 ;; "fn args: " (3)
