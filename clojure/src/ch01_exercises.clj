@@ -135,6 +135,8 @@
 
 ;; I used `map` to simplify definition of `e/evlis` before.
 ;; Let's now reimplement it using recursion
+;; note: tail recursion makes it a bit more complicated;
+;; as an alternative, see https://github.com/Chouser/lisp-in-small-pieces-clj/blob/main/src/us/chouser/LISP/ch1a.clj#L68-L74
 (defn evlis
   ([exps env]
    (evlis [] exps env))
@@ -179,3 +181,71 @@
                   e/env-global)))
 ;; evlis called with exps: ((cons 1 [2 3]))
 
+
+
+;;; Ex. 1.5: modify `<` to return a boolean value of the language being defined,
+;;; instead of the implementation language (Clojure)
+
+;; so I want to return `t` or `f` but how do I do that?
+(e/evaluate '(< 1 2) e/env-global)
+;; => true
+
+;; Fix it: TODO: how?
+;; ... this only returns the symbol `t`
+(e/evaluate '(< 1 2) (assoc e/env-global
+                            '< (fn [[a b]] (if (< a b)
+                                           't
+                                           'f))))
+;; => t
+
+;; ... so maybe I need to tweak `invoke`?
+(declare t-evaluate)
+(defn t-invoke [f args env]
+  (if (fn? f)
+    ;; CHANGE: call evaluate on the result of the function application
+    (t-evaluate (f args) env)
+    (e/wrong "Not a function" f args)))
+
+(defn t-evaluate [exp env]
+  (if (e/atom? exp)
+    (cond
+      (= 't exp) true
+      (= 'f exp) false
+      (symbol? exp) (e/lookup exp env)
+      ;; Notice that `keyword?` isn't here because keywords are Clojure's thing
+      ;; and aren't present in the Lisp we are trying to implement
+      ((some-fn number? string? char? boolean? vector?) exp) exp
+      :else (e/wrong "Cannot evaluate - unknown atomic expression?" exp))
+
+    ;; we use `first` instead of `car`
+    (case (first exp)
+      quote (second exp)
+      ;; (p.8) we gloss over the fact that in `(if pred)` we use boolean semantics
+      ;; of the implementation language (Clojure - which means `nil` will be falsy);
+      ;; more precisely, we should write `(if-not (= the-false-value (evaluate (second exp) env)))
+      if (if (t-evaluate (second exp) env)
+           (t-evaluate (nth exp 2) env)
+           (t-evaluate (nth exp 3) env))
+      begin (e/eprogn (rest exp) env)
+      set! (e/update! (second exp) env (t-evaluate (nth exp 2) env))
+      lambda (e/make-function (second exp) (nnext exp) env)
+      ;; it's not a special form, just ordinary function => call it!
+      (t-invoke (t-evaluate (first exp) env)
+              (e/evlis (rest exp) env)
+              env))))
+
+(t-evaluate '(< 1 2) (assoc e/env-global
+                            '< (fn [[a b]] (if (< a b)
+                                             't
+                                             'f))))
+;; => true
+
+;; sanity checks
+(t-evaluate '(quote (1 2 3 )) e/env-global)
+;; => (1 2 3)
+;; TODO:
+(t-evaluate '(cons 1 [2 3]) e/env-global)
+;; Cannot evaluate - unknown atomic expression?
+;; {:expression (1 2 3), :args nil}
+
+;; ... would I have to update definitions of `cons` and some other primitives too?
