@@ -554,3 +554,118 @@
       lambda (d-make-function (second exp) (nnext exp) env)))
   
   .)
+
+
+
+;;; 1.7 Global Environment (p.27)
+;;; We define some basic functions to form our "standard library"
+;;; - things like `cons`, `car`, etc.
+
+(def env-global env-init)
+
+;; First define two helper macros that will "push" the definitions into the global environment
+;; Macros have to be used because the names we are about to define can't be resolved
+;; until they are defined :).
+
+;; Here's what I'm trying to achieve - `(definitial car first)`
+;; should add 'car to global-env so it looks like this: {'car first}
+;; and the lookup can then work:
+((lookup 'car {'car first} ) [1 2 3])
+;; => 1
+
+(defmacro definitial
+  "Defines a new symbol in the global environment bound to given value
+  or 'ch01-evaluator/void if no value is provided."
+  ([name]
+   ;; (prn name) ; the value of name
+   ;; (prn (type name)) ; clojure.lang.Symbol
+   ;; since definitial is a macro, simply ~name will do the job
+   `(definitial ~name :ch01-evaluator/void))
+  ([name value]
+   ;; notice how we use `extend` instead of relying on internal env structure
+   `(alter-var-root #'env-global #(extend % ['~name] [~value]))))
+
+(comment
+  (definitial foo1)
+  ;; macroexpands to a call of itself:
+  (definitial foo1 :ch01-evaluator/void)
+  ;; ... that macroexpands further: 
+  (alter-var-root #'env-global #(extend % ['foo1] [:ch01-evaluator/void]))
+  ;; => {foo1 :ch01-evaluator/void}
+
+  ;; check that foo1 symbol is indeed in the global env
+  (lookup 'foo1 env-global)
+  ;; => :ch01-evaluator/void
+
+  ;; trying to call 'foo1 doesn't make sense yet because it has no value/function associated with it
+  ;; - it should fail but returns nil:
+  ((lookup 'foo1 env-global) [1 2 3])
+;; => nil
+  .)
+
+
+(defmacro defprimitive
+  "Defines a primitive operation denoted by the symbol with given name,
+  implemented as function f of given arity."
+  [name f arity]
+  `(definitial
+     ~name
+     (fn [~'values]
+       (if (= ~arity (count ~'values))
+         (apply ~f ~'values)
+         (wrong "Incorrect ~arity" [~f ~'values])))))
+
+(comment
+
+  (def env-global env-init)
+
+  ;; when foo1 isn't defined yet:
+  #_((lookup 'foo1 env-global) '([1 2 3]))
+  ;; No such binding
+  ;; {:expression foo1, :args nil}
+
+  (defprimitive foo1 first 1)
+  ;; calling macroexpand-all on the above form:
+  (alter-var-root
+   #'env-global
+   #(extend
+        %
+      ['foo1]
+      [(fn*
+        ([values]
+         (if (= 1 (count values))
+           (apply first values)
+           (wrong "Incorrect ~arity" [first values]))))]))
+
+  ;; After foo1 is defined, it should return the first item of the collection
+  ;; notice we wrap the input argument within a list to simulate what `evaluate` does
+  ((lookup 'foo1 env-global) '([1 2 3]))
+  ;; => 1
+
+.)
+
+
+;; can `definitial` and `defprimive` be simple macros?
+;; => NO - the name symbol would be evaluated prior the function call.
+(comment
+  (defn definitial
+    ([name]
+     ;; (prn name) ; the value of name
+     ;; (prn (type name)) ; clojure.lang.Symbol
+     ;; since definitial is a macro, simply ~name will do the job
+     (definitial name :ch01-evaluator/void))
+    ([name value]
+     ;; notice how we use `extend` instead of relying on internal env structure
+     (alter-var-root #'env-global #(extend % [name] [value]))))
+
+  (definitial foo1 first)
+  ;; Throws:
+  ;;   Unable to resolve symbol: foo1 in this context
+
+  ;; so the user would have to quote the name explicitly which isn't idiomatic
+  (definitial 'foo1 first)
+  ((lookup 'foo1 env-global) [1 2 3])
+  ;; => 1
+
+
+  )
