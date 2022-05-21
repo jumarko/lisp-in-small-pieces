@@ -817,3 +817,32 @@ env-global
   ;; => true
 
   .)
+
+
+;;; 1.8 (p.27): The Intepreter, finally!
+;;; we build a basic Read-Eval-Print-Loop using `evaluate`
+
+(defn repl1
+  "Reads a single line from stdin, `evaluate`s it and prints the result to stdout."
+  []
+  (-> (read) (evaluate env-global) (prn)))
+
+;; this is called `toplevel` in the book
+(defn repl
+  "`repl1` in a loop"
+  []
+  (repl1)
+  (recur))
+
+
+
+(comment
+  ;; run the repl once and enter some expressions, e
+  ;; .g. (cons 1 [2 3]), (quote (1 2 3)), etc.
+  ;; ... then check the repl buffer for the printed result
+  (repl1)
+
+  ;; beaware: infinite loop - but you can break it by entering invalid expression
+  (repl)
+
+  .)
