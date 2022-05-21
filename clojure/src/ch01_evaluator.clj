@@ -831,7 +831,8 @@ env-global
 (defn repl
   "`repl1` in a loop"
   []
-  (while true (repl1)))
+  (repl1)
+  (recur))
 
 
 
