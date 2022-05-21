@@ -139,16 +139,43 @@
   ([exps env]
    (evlis [] exps env))
   ([result exps env]
+   (println "evlis called with exps:" exps)
    (if-let [s (seq exps)]
      (recur (conj result (e/evaluate (first exps) env))
             (rest s)
             env)
      result)))
 
+;; check that it works:
 (assert (= [1 '(2 3) [10 20] '(1 2 3)]
            (evlis '(1
                     (quote (2 3))
                     [10 20]
                     (cons 1 [2 3]))
                   e/env-global)))
+
+;; does it still recur when evaluating only one item?
+(evlis '((cons 1 [2 3]))
+       e/env-global)
+;; evlis called with exps: ((cons 1 [2 3]))
+;; evlis called with exps: ()
+
+;; eliminating unnecessary recursion
+(defn evlis
+  ([exps env] (evlis [] exps env))
+  ([result exps env]
+   (println "evlis called with exps:" exps)
+   (let [s (seq exps)]
+     (cond
+       (not s) result
+
+       (= 1 (bounded-count 2 s)) (conj result (e/evaluate (first exps) env))
+
+       :else (recur (conj result (e/evaluate (first exps) env))
+                    (rest s)
+                    env)))))
+(assert (= ['(1 2 3)]
+           (evlis '((cons 1 [2 3]))
+                  e/env-global)))
+;; evlis called with exps: ((cons 1 [2 3]))
 
