@@ -315,13 +315,30 @@
 
 (assert (= '(1 2 3)
            (e/evaluate '(list 1 2 3) e/env-global)))
+(type (e/evaluate '(list 1 2 3) e/env-global))
+;; => clojure.lang.PersistentList
+
+;; Note: alternatively, I could skip `defprimitive` and use `definitial` to define `list`.
+;; This is how they did it in the book's answer.
+(comment
+  ;; Notice they don't use `list`'s implementation in Scheme either - they simply use anonymous
+  ;; function to return the input args as they are. This is better approach!
+  (e/definitial list (fn [& values] values)))
+
+;; so use an anonymous function instead of `list` directly
+(defprimitive list (fn [& values] values) {:min-arity 0})
+(assert (= '(1 2 3)
+           (e/evaluate '(list 1 2 3) e/env-global)))
+;; notice how type is now clojure.lang.Cons instead of clojure.lang.PersistentList
+(type (e/evaluate '(list 1 2 3) e/env-global))
+;; => clojure.lang.Cons
+
 (assert (= ()
            (e/evaluate '(list) e/env-global)))
 (assert (= '(1)
            (e/evaluate '(list 1) e/env-global)))
 (assert (= '(1 2 3 4 5 6 7 8 9 10)
            (e/evaluate '(list 1 2 3 4 5 6 7 8 9 10) e/env-global)))
-
 
 ;;; Ex. 1.8 Define `apply`
 
