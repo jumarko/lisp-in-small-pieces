@@ -185,6 +185,9 @@
 
 ;;; Ex. 1.5: modify `<` to return a boolean value of the language being defined,
 ;;; instead of the implementation language (Clojure)
+;;; => Abandon this exercise because it doesn't make much sense.
+;;; When you look at the answers at the book, they simply define
+;;; macro `defpredicate` used to define boolean functions.
 
 ;; so I want to return `t` or `f` but how do I do that?
 (e/evaluate '(< 1 2) e/env-global)
@@ -244,8 +247,86 @@
 (t-evaluate '(quote (1 2 3 )) e/env-global)
 ;; => (1 2 3)
 ;; TODO:
-(t-evaluate '(cons 1 [2 3]) e/env-global)
+#_(t-evaluate '(cons 1 [2 3]) e/env-global)
 ;; Cannot evaluate - unknown atomic expression?
 ;; {:expression (1 2 3), :args nil}
 
 ;; ... would I have to update definitions of `cons` and some other primitives too?
+
+
+
+
+;;; Ex. 1.6 Define function `list`
+
+;; without proper definition, this doesn't work yet
+;; (I have already defined `list` above, but only for `my-env`)
+#_(e/evaluate '(((lambda (a)
+                       (lambda (b) (list a b)))
+               1)
+              2)
+            e/env-global)
+;; No such binding
+;; {:expression list, :args nil}
+
+;; Define `list` and try again.
+;; It looks really simple - just use `list`?
+;; - but how do you I define proper arity? (it can be 0 or more arguments)
+;; - and should I really return the list implementation offered by Clojure (the hosting language)?
+
+;; here i cheat and say that you can use `list` only for 2 elements:
+(e/defprimitive list list 2)
+(assert (= '(1 2)
+           (e/evaluate '(((lambda (a)
+                                  (lambda (b) (list a b)))
+                          1)
+                         2)
+                       e/env-global)))
+
+;; ... but for other number of args you still get the error:
+#_(e/evaluate '(list 1 2 3) e/env-global)
+;; Incorrect ~arity
+;; {:expression [#function[clojure.lang.PersistentList/Primordial] (1 2 3)],
+;;  :extra-info ({:expected-arity 2, :actual-arity 3})}
+
+;; ... so do I have to redefine `defprimitive` to support variadic functions?
+;; one idea is to support `arity` arg that is a map with the following keys:
+;; - `:min-arity`
+;; - `:max-arity`
+;; both of them would be optional and checked only if arity is a map
+;; if it's an empty map, then it would simply accept any number of arguments
+
+(defmacro defprimitive
+  "Defines a primitive operation denoted by the symbol with given name,
+  implemented as function f of given arity."
+  [name f arity]
+  `(e/definitial
+     ~name
+     (fn [~'values]
+       (let [val-count# (count ~'values)]
+         (if (or (and (nat-int? ~arity) (= ~arity val-count#))
+                 (and (map? ~arity)
+                      (<= (:min-arity ~arity -1) val-count#)
+                      (>= (:max-arity ~arity Long/MAX_VALUE) val-count#)))
+           (apply ~f ~'values)
+           (e/wrong "Incorrect ~arity" [~f ~'values] {:expected-arity ~arity :actual-arity val-count#}))))))
+
+(defprimitive list list {:min-arity 0})
+
+
+(assert (= '(1 2 3)
+           (e/evaluate '(list 1 2 3) e/env-global)))
+(assert (= ()
+           (e/evaluate '(list) e/env-global)))
+(assert (= '(1)
+           (e/evaluate '(list 1) e/env-global)))
+(assert (= '(1 2 3 4 5 6 7 8 9 10)
+           (e/evaluate '(list 1 2 3 4 5 6 7 8 9 10) e/env-global)))
+
+
+;;; Ex. 1.8 Define `apply`
+
+
+
+;;; Ex. 1.9 Define function `end` so you can exit cleanly from the interpreter (REPL) loop
+
+
