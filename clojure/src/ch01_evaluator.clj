@@ -50,8 +50,8 @@
 ;; autoquoted objects like numbers and strings don't have to be quoted
 ;; and are represented by their values
 ;; Note: we define our own `wrong` function here
-(defn wrong [msg exp & args]
-  (throw (ex-info msg {:expression exp :args args})))
+(defn wrong [msg exp & extra-info]
+  (throw (ex-info msg {:expression exp :extra-info extra-info})))
 
 (defn evaluate [exp env]
   (if (atom? exp)
@@ -611,9 +611,10 @@
   `(definitial
      ~name
      (fn [~'values]
-       (if (= ~arity (count ~'values))
-         (apply ~f ~'values)
-         (wrong "Incorrect ~arity" [~f ~'values])))))
+       (let [val-count# (count ~'values)]
+         (if (= ~arity val-count#)
+           (apply ~f ~'values)
+           (wrong "Incorrect ~arity" [~f ~'values] {:expected-arity ~arity :actual-arity val-count#}))))))
 
 (comment
 
