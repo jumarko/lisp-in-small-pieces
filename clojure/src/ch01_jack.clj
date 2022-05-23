@@ -17,7 +17,7 @@
   (throw (ex-info msg {:expression exp :rest-args args})))
 
 ;; AOT declarations needed for `evaluate` below
-(declare lookup update! make-function invoke evlis)
+(declare lookup update! make-function invoke evlis eprogn)
 
 ;; Basic evaluate (eval) function - takes an expression `e` and environment `env`
 ;; This is really as much as we can do without digging into `eprogn` (see below)
