@@ -824,9 +824,10 @@ env-global
 ;;; we build a basic Read-Eval-Print-Loop using `evaluate`
 
 (defn repl1
-  "Reads a single line from stdin, `evaluate`s it and prints the result to stdout."
+  "Reads a single line from stdin, `evaluate`s it and prints the result to stdout.
+  Returns the evaluated expression."
   []
-  (-> (read) (evaluate env-global) (prn)))
+  (-> (read) (evaluate env-global) (doto (prn))))
 
 ;; this is called `toplevel` in the book
 (defn repl
@@ -847,3 +848,32 @@ env-global
   (repl)
 
   .)
+
+;; From ex. 1.9 - a better definition of `repl` with support for `end` function.
+(defprimitive end (fn [] 'repl.exit) 0)
+
+(defn repl
+  "`repl1` in a loop with support for a clean exit via `(end)`.
+  To exit enter "
+  ([]
+   (println "Welcome to the REPL!")
+   (println "You can evaluate forms one by one - they are read from stdin.")
+   (println "When you are done, type (end)")
+   (repl nil))
+  ([last-ret]
+   (if (= last-ret 'repl.exit)
+     (println "Bye!")
+     (recur (repl1)))))
+
+;; quick demo
+(with-in-str
+  "(+ 10 20) (list 1 2 3) (end)"
+  (repl))
+;; will print:
+;;   Welcome to the REPL!
+;;   You can evaluate forms one by one - they are read from stdin.
+;;   When you are done, type (end)
+;;   30
+;;   (1 2 3)
+;;   repl.exit
+;;   Bye!

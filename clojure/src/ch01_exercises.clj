@@ -425,4 +425,27 @@
 
 
 ;;; Ex. 1.9 Define function `end` so you can exit cleanly from the interpreter (REPL) loop
+;;; My idea is to let user return a special symbol `repl.exit`, detect it in the body
+;;; of the `repl` function and exit cleanly.
 
+(e/evaluate '(quote repl.exit) e/env-global)
+;; => repl.exit
+
+(defprimitive end (fn [] 'repl.exit) 0)
+
+(defn repl
+  "`repl1` in a loop with support for a clean exit via `(end)`.
+  To exit enter "
+  ([]
+   (println "Welcome to the REPL!")
+   (println "You can evaluate forms one by one - they are read from stdin.")
+   (println "When you are done, type (end)")
+   (repl nil))
+  ([last-ret]
+   (if (= last-ret 'repl.exit)
+     (println "Bye!")
+     (recur (e/repl1)))))
+
+(comment
+  (repl)
+  .)
