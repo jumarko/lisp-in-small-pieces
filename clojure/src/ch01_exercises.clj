@@ -348,7 +348,7 @@
 (assert (= '(1 2 3 4 5 6 7 8 9 10)
            (e/evaluate '(list 1 2 3 4 5 6 7 8 9 10) e/env-global)))
 
-;; I decided to fix the tmpty list too - see p.9 in the book where they say
+;; I decided to fix the empty list too - see p.9 in the book where they say
 ;; that false, nil, and () are all different values
 
 (defprimitive list (fn [& values] (or values ())) {:min-arity 0})
@@ -361,6 +361,32 @@
 
 
 ;;; Ex. 1.8 Define `apply`
+
+;; the simplest implementation should just use Clojure's apply
+(defprimitive apply (fn [f args] (apply f args)) 2)
+
+;; ... but why it throws arity error??
+(assert (= '(1 2 3)
+           (e/evaluate '(applylist [1 2 3]) e/env-global)))
+;; Wrong number of args (3) passed to: ch01-exercises/eval12973/fn--12974/fn--12975
+
+;; the problem is that our `list` function really doesn't accept variable number of args
+;; but instead takes only a collection...
+((e/lookup 'list e/env-global)
+ [1 2 3])
+;; => (1 2 3)
+
+
+;; ... that is because of how `defprimitive` already uses `apply`
+;; to mitigate that, we need to either use `definitial` or wrap args again
+;; here we wrap args with a vector so that defprimitive doesn't expand the inner arglist
+(defprimitive apply (fn [f args] (apply f [args])) 2)
+(assert (= '(1 2 3) (e/evaluate '(apply list [1 2 3]) e/env-global)))
+(assert (= () (e/evaluate '(apply list []) e/env-global)))
+
+;; finally, let's try with a lambda
+(e/evaluate '(apply (lambda (a b c) (list a b c)) [1 2 3]) e/env-global)
+;; => (1 2 3)
 
 
 
