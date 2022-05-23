@@ -50,8 +50,8 @@
 ;; autoquoted objects like numbers and strings don't have to be quoted
 ;; and are represented by their values
 ;; Note: we define our own `wrong` function here
-(defn wrong [msg exp & args]
-  (throw (ex-info msg {:expression exp :args args})))
+(defn wrong [msg exp & extra-info]
+  (throw (ex-info msg {:expression exp :extra-info extra-info})))
 
 (defn evaluate [exp env]
   (if (atom? exp)
@@ -611,9 +611,10 @@
   `(definitial
      ~name
      (fn [~'values]
-       (if (= ~arity (count ~'values))
-         (apply ~f ~'values)
-         (wrong "Incorrect ~arity" [~f ~'values])))))
+       (let [val-count# (count ~'values)]
+         (if (= ~arity val-count#)
+           (apply ~f ~'values)
+           (wrong "Incorrect ~arity" [~f ~'values] {:expected-arity ~arity :actual-arity val-count#}))))))
 
 (comment
 
@@ -823,9 +824,10 @@ env-global
 ;;; we build a basic Read-Eval-Print-Loop using `evaluate`
 
 (defn repl1
-  "Reads a single line from stdin, `evaluate`s it and prints the result to stdout."
+  "Reads a single line from stdin, `evaluate`s it and prints the result to stdout.
+  Returns the evaluated expression."
   []
-  (-> (read) (evaluate env-global) (prn)))
+  (-> (read) (evaluate env-global) (doto (prn))))
 
 ;; this is called `toplevel` in the book
 (defn repl
@@ -846,3 +848,54 @@ env-global
   (repl)
 
   .)
+
+
+;;; From Ex 1.6 and 1.8: enhanced `defprimitive`, `list`, `apply`
+(defmacro defprimitive
+  "Defines a primitive operation denoted by the symbol with given name,
+  implemented as function f of given arity."
+  [name f arity]
+  `(definitial
+     ~name
+     (fn [~'values]
+       (let [val-count# (count ~'values)]
+         (if (or (and (nat-int? ~arity) (= ~arity val-count#))
+                 (and (map? ~arity)
+                      (<= (:min-arity ~arity -1) val-count#)
+                      (>= (:max-arity ~arity Long/MAX_VALUE) val-count#)))
+           (apply ~f ~'values)
+           (wrong "Incorrect ~arity" [~f ~'values] {:expected-arity ~arity :actual-arity val-count#}))))))
+
+(defprimitive list (fn [& values] (or values ())) {:min-arity 0})
+
+(defprimitive apply (fn [f & args] (invoke f (apply concat args) )) {:min-arity 2})
+
+
+;;; From ex. 1.9 - a better definition of `repl` with support for `end` function.
+(defprimitive end (fn [] 'repl.exit) 0)
+
+(defn repl
+  "`repl1` in a loop with support for a clean exit via `(end)`.
+  To exit enter "
+  ([]
+   (println "Welcome to the REPL!")
+   (println "You can evaluate forms one by one - they are read from stdin.")
+   (println "When you are done, type (end)")
+   (repl nil))
+  ([last-ret]
+   (if (= last-ret 'repl.exit)
+     (println "Bye!")
+     (recur (repl1)))))
+
+;; quick demo
+(with-in-str
+  "(+ 10 20) (list 1 2 3) (end)"
+  (repl))
+;; will print:
+;;   Welcome to the REPL!
+;;   You can evaluate forms one by one - they are read from stdin.
+;;   When you are done, type (end)
+;;   30
+;;   (1 2 3)
+;;   repl.exit
+;;   Bye!
