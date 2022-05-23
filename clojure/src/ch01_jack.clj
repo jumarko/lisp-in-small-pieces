@@ -56,7 +56,7 @@
 ;; => true
 (evaluate 1 {})
 ;; => 1
-(evaluate 'sym {})
+#_(evaluate 'sym {})
 ;; this doesn't work - need to define `lookup`
 (evaluate '(quote (1 2 3)) {})
 ;; => (1 2 3)
@@ -128,7 +128,7 @@
 ;; => 11
 
 ;; I think we're now ready to try the full `evaluate` function.
-(evaluate '(+ (1 2 3)) {})
+#_(evaluate '(+ (1 2 3)) {})
 ;; Oh, wait, we need to define `lookup` first - otherwise we don't know
 ;; what values (vars?) correspond to symbols.
 
@@ -140,7 +140,7 @@
     v
     (wrong "No such id in env" id env)))
 
-(lookup "foo" {})
+#_(lookup "foo" {})
 ;; This doesn't and shouldn't work.
 (lookup "foo" {"foo" +})
 ;; => #function[clojure.core/+]
