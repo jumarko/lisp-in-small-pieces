@@ -366,8 +366,8 @@
 (defprimitive apply (fn [f args] (apply f args)) 2)
 
 ;; ... but why it throws arity error??
-(assert (= '(1 2 3)
-           (e/evaluate '(applylist [1 2 3]) e/env-global)))
+#_(assert (= '(1 2 3)
+           (e/evaluate '(apply list [1 2 3]) e/env-global)))
 ;; Wrong number of args (3) passed to: ch01-exercises/eval12973/fn--12974/fn--12975
 
 ;; the problem is that our `list` function really doesn't accept variable number of args
@@ -389,7 +389,40 @@
 ;; => (1 2 3)
 
 
+;; Now, what if Clojure didn't have `apply` function?
+;; How we would implement apply ourselves?
+;; ...
+;; I think we would need to build a form with function at the first argument
+;; and spread the arglist.
+;; So to manually convert `(f [x y z ...])` into `(f x y z ...)`
+;; Then evaluate the form - but notice I'm using Clojure's eval because `e/invoke`
+;; also simply calls the target function via `invoke`
+;; (it's not working through `e/evaluate` anymore because that would be a cycle)
+(defprimitive apply (fn [f args] (e/invoke f args )) 2)
+
+(assert (= '(1 2 3) (e/evaluate '(apply list [1 2 3]) e/env-global)))
+(assert (= () (e/evaluate '(apply list []) e/env-global)))
+
+;; Finally, in the answer to Ex. 1.8 they mention that apply is variadic!
+;; - this doesn't work with my former definition
+#_(assert (= '(1 2 3) (e/evaluate '(apply list 1 2 [3 4 5]) e/env-global)))
+;; {:expression
+;;  [#function[ch01-exercises/eval14010/fn--14011/fn--14012/fn--14015]
+;;   (#function[ch01-exercises/eval13793/fn--13794/fn--13795] 1 2 [3 4 5])],
+;;  :extra-info ({:expected-arity 2, :actual-arity 4})}
+
+;; so try again - change the acceptable arity
+(defprimitive apply (fn [f args] (e/invoke f args )) {:min-arity 2})
+;; it doesn't work because our primitive still accepts only two args
+#_(assert (= '(1 2 3) (e/evaluate '(apply list 1 2 [3 4 5]) e/env-global)))
+;; 1. Unhandled clojure.lang.ArityException
+;; Wrong number of args (4) passed to: ch01-exercises/eval14033/fn--14034/fn--14035/fn--14036
+
+;; We change our primitive to accept variable number of args and use `apply concat` to flatten args.
+(defprimitive apply (fn [f & args] (e/invoke f (apply concat args) )) {:min-arity 2})
+(assert (= '(1 2 3) (e/evaluate '(apply list [1 2 3]) e/env-global)))
+(assert (= () (e/evaluate '(apply list []) e/env-global)))
+
 
 ;;; Ex. 1.9 Define function `end` so you can exit cleanly from the interpreter (REPL) loop
-
 
