@@ -849,7 +849,29 @@ env-global
 
   .)
 
-;; From ex. 1.9 - a better definition of `repl` with support for `end` function.
+
+;;; From Ex 1.6 and 1.8: enhanced `defprimitive`, `list`, `apply`
+(defmacro defprimitive
+  "Defines a primitive operation denoted by the symbol with given name,
+  implemented as function f of given arity."
+  [name f arity]
+  `(definitial
+     ~name
+     (fn [~'values]
+       (let [val-count# (count ~'values)]
+         (if (or (and (nat-int? ~arity) (= ~arity val-count#))
+                 (and (map? ~arity)
+                      (<= (:min-arity ~arity -1) val-count#)
+                      (>= (:max-arity ~arity Long/MAX_VALUE) val-count#)))
+           (apply ~f ~'values)
+           (wrong "Incorrect ~arity" [~f ~'values] {:expected-arity ~arity :actual-arity val-count#}))))))
+
+(defprimitive list (fn [& values] (or values ())) {:min-arity 0})
+
+(defprimitive apply (fn [f & args] (invoke f (apply concat args) )) {:min-arity 2})
+
+
+;;; From ex. 1.9 - a better definition of `repl` with support for `end` function.
 (defprimitive end (fn [] 'repl.exit) 0)
 
 (defn repl
