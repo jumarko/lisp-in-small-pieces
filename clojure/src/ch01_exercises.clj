@@ -449,3 +449,55 @@
 (comment
   (repl)
   .)
+
+
+
+;;; Ex. 1.10 Performance benchmarking
+;;; 1. Compare the speed of Scheme (Clojure) and `evaluate`
+;;; 2. Then compare the speed of `evaluate` and `evaluate` interpreted by `evaluate`.
+
+
+;; what kind of functions to benchmark?
+;; perhaps factorial?
+;; but recursion is only presented in section 2.6 ...
+;; So we just evaluate a simple function over and over again.
+
+
+;;; 1. Compare the speed of Scheme (Clojure) and `evaluate`
+(time ())
+;; clojure:
+(time (dotimes [i 100000]
+        ((fn [x] (+ x x))
+         i)))
+"Elapsed time: 6.947866 msecs"
+
+;; `evaluate`:
+(time (dotimes [i 100000]
+        (e/evaluate '((lambda (x) (+ x x))
+                      1000)
+                    e/env-global)))
+"Elapsed time: 418.444609 msecs"
+;; => evaluate is much slower than native Clojure, up to 100x
+;; - over time it can be somewhare faster, but it's always been 300+ msecs
+
+
+
+;;; 2. Then compare the speed of `evaluate` and `evaluate` interpreted by `evaluate`.
+;;; How can I run `evaluate` interpreted by `evaluate`?
+;;; Do I need to extend `evaluate` definition to recognize itself?
+;;; or do I just need to use `defprimitive`?
+
+(defprimitive evaluate (fn [exp env]
+                         (e/evaluate exp env)) 2)
+
+;; now benchmark evaluate inside evaluate
+(time (dotimes [i 100000]
+        (e/evaluate '(evaluate ((lambda (x) (+ x x))
+                                1000)
+                               ;; empty env is good enough here
+                               '())
+                    e/env-global)))
+"Elapsed time: 422.944397 msecs"
+;; => wrapping evaluate within another evaluate adds little overhead
+;; it'a almost the same thing.
+
