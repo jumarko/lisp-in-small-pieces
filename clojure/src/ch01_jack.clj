@@ -205,5 +205,19 @@
 ;; Basically, initial attempts at an environment fail because `invoke` needs
 ;; access to the environment too: it's no good extending the global environment
 ;; if `invoke` can't see it, and thus cannot evaluate functions!
-;;
-;; TODO `d-invoke` et al.
+
+(defn make-function [variables body env]
+  (fn [& values]
+    (eprogn body (extend env variables values))))
+
+((evaluate '(lambda (a b) a) {}) 1 2)
+
+(evaluate '((lambda (a)
+                    ;; `a` isn't present in the environment visible to this inner lambda
+                    ((lambda (b) (list a b))
+                     (+ 2 a)))
+            1)
+          ;; have to provide relevant host functions in env
+          {'+ +
+           'list list})
+;; => (1 3)
