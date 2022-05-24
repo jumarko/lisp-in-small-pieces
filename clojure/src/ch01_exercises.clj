@@ -298,20 +298,27 @@
 ;; both of them would be optional and checked only if arity is a map
 ;; if it's an empty map, then it would simply accept any number of arguments
 
+;; name `lift` inspired by Paul Bauer: https://github.com/pmbauer/LiSP-2022/blob/trunk/src/codes/bauer/LiSP/ch01.clj#L103
+(defn lift
+  "Lifts native (host language) function `f` into a function
+  that can be used in our interpreter.
+  The resulting function still needs to be registered, presumably via `definitial`.
+  In most cases, you can use `defprimitive` which uses `lift` internally."
+  [f arity]
+  (fn [values]
+    (let [val-count (count values)]
+      (if (or (and (nat-int? arity) (= arity val-count))
+              (and (map? arity)
+                   (<= (:min-arity arity -1) val-count)
+                   (>= (:max-arity arity Long/MAX_VALUE) val-count)))
+        (apply f values)
+        (e/wrong "Incorrect arity" [f values] {:expected-arity arity :actual-arity val-count})))))
+
 (defmacro defprimitive
   "Defines a primitive operation denoted by the symbol with given name,
   implemented as function f of given arity."
   [name f arity]
-  `(e/definitial
-     ~name
-     (fn [~'values]
-       (let [val-count# (count ~'values)]
-         (if (or (and (nat-int? ~arity) (= ~arity val-count#))
-                 (and (map? ~arity)
-                      (<= (:min-arity ~arity -1) val-count#)
-                      (>= (:max-arity ~arity Long/MAX_VALUE) val-count#)))
-           (apply ~f ~'values)
-           (e/wrong "Incorrect ~arity" [~f ~'values] {:expected-arity ~arity :actual-arity val-count#}))))))
+  `(e/definitial ~name (lift ~f ~arity)))
 
 (defprimitive list list {:min-arity 0})
 
@@ -464,7 +471,6 @@
 
 
 ;;; 1. Compare the speed of Scheme (Clojure) and `evaluate`
-(time ())
 ;; clojure:
 (time (dotimes [i 100000]
         ((fn [x] (+ x x))
