@@ -703,6 +703,7 @@ env-global
 
 ;; ... so another approach is to lock immutability of t and f in the interpreter
 (defn evaluate [exp env]
+  ;; #dbg ^{:break/when (atom? exp)}
   (if (atom? exp)
     (cond
       (= 't exp) true
@@ -710,7 +711,10 @@ env-global
       (symbol? exp) (lookup exp env)
       ;; Notice that `keyword?` isn't here because keywords are Clojure's thing
       ;; and aren't present in the Lisp we are trying to implement
-      ((some-fn number? string? char? boolean? vector?) exp) exp
+      ((some-fn number? string? char? boolean? ) exp) exp
+      ;; TODO: should we really try to evaluate expressions inside vectors?
+      ;; it sounds like a natural thing to do to me but maybe our Lisp should really treat vectors as atoms
+      (vector? exp) (mapv #(evaluate % env) exp)
       :else (wrong "Cannot evaluate - unknown atomic expression?" exp))
 
     ;; we use `first` instead of `car`

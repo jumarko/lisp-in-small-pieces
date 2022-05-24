@@ -298,20 +298,27 @@
 ;; both of them would be optional and checked only if arity is a map
 ;; if it's an empty map, then it would simply accept any number of arguments
 
+;; name `lift` inspired by Paul Bauer: https://github.com/pmbauer/LiSP-2022/blob/trunk/src/codes/bauer/LiSP/ch01.clj#L103
+(defn lift
+  "Lifts native (host language) function `f` into a function
+  that can be used in our interpreter.
+  The resulting function still needs to be registered, presumably via `definitial`.
+  In most cases, you can use `defprimitive` which uses `lift` internally."
+  [f arity]
+  (fn [values]
+    (let [val-count (count values)]
+      (if (or (and (nat-int? arity) (= arity val-count))
+              (and (map? arity)
+                   (<= (:min-arity arity -1) val-count)
+                   (>= (:max-arity arity Long/MAX_VALUE) val-count)))
+        (apply f values)
+        (e/wrong "Incorrect arity" [f values] {:expected-arity arity :actual-arity val-count})))))
+
 (defmacro defprimitive
   "Defines a primitive operation denoted by the symbol with given name,
   implemented as function f of given arity."
   [name f arity]
-  `(e/definitial
-     ~name
-     (fn [~'values]
-       (let [val-count# (count ~'values)]
-         (if (or (and (nat-int? ~arity) (= ~arity val-count#))
-                 (and (map? ~arity)
-                      (<= (:min-arity ~arity -1) val-count#)
-                      (>= (:max-arity ~arity Long/MAX_VALUE) val-count#)))
-           (apply ~f ~'values)
-           (e/wrong "Incorrect ~arity" [~f ~'values] {:expected-arity ~arity :actual-arity val-count#}))))))
+  `(e/definitial ~name (lift ~f ~arity)))
 
 (defprimitive list list {:min-arity 0})
 
@@ -449,3 +456,151 @@
 (comment
   (repl)
   .)
+
+
+
+;;; Ex. 1.10 Performance benchmarking
+;;; 1. Compare the speed of Scheme (Clojure) and `evaluate`
+;;; 2. Then compare the speed of `evaluate` and `evaluate` interpreted by `evaluate`.
+
+
+;; what kind of functions to benchmark?
+;; perhaps factorial?
+;; but recursion is only presented in section 2.6 ...
+;; So we just evaluate a simple function over and over again.
+
+
+;;; 1. Compare the speed of Scheme (Clojure) and `evaluate`
+;; clojure:
+(time (dotimes [i 100000]
+        ((fn [x] (+ x x))
+         i)))
+"Elapsed time: 6.947866 msecs"
+
+;; `evaluate`:
+(time (dotimes [i 100000]
+        (e/evaluate '((lambda (x) (+ x x))
+                      1000)
+                    e/env-global)))
+"Elapsed time: 418.444609 msecs"
+;; => evaluate is much slower than native Clojure, up to 100x
+;; - over time it can be somewhare faster, but it's always been 300+ msecs
+
+
+
+;;; 2. Then compare the speed of `evaluate` and "`evaluate` interpreted by `evaluate`".
+;;; How can I run `evaluate` interpreted by `evaluate`?
+;;; Do I need to extend `evaluate` definition to recognize itself?
+;;; or do I just need to use `defprimitive`?
+
+(defprimitive evaluate (fn [exp env]
+                         (e/evaluate exp env)) 2)
+
+;; now benchmark evaluate inside evaluate
+(time (dotimes [i 100000]
+        (e/evaluate '(evaluate ((lambda (x) (+ x x))
+                                1000)
+                               ;; empty env is good enough here
+                               '())
+                    e/env-global)))
+"Elapsed time: 422.944397 msecs"
+;; => wrapping evaluate within another evaluate adds little overhead
+;; it'a almost the same thing.
+
+;;; ... but as Chouser said on slack I was probably doing it wrong: https://lisp2022.slack.com/archives/C03C3NMCM7T/p1653315172321359?thread_ts=1653314754.685179&cid=C03C3NMCM7T
+;;;       The way I read the exercise, for the last measurement rather than using defprimitive on evaluate
+;;;       we'd need to quote the whole of evaluate and pass it (and all the functions it calls) to evaluate .
+;;;       I would expect the slowdown to be very dramatic.
+
+(defn my-if [pred then else]
+  (if pred then else))
+
+(defn my-plus [vals]
+  (prn "my-plus called with vals:" vals)
+  (apply + vals))
+
+;; This is futile;
+;; until I can recursively call a function in the language I'm defining, it cannot work
+;; Here, the lambda is serving as inner 'evaluate' but it cannot call itself :(
+(defn call-eval-in-eval []
+  (e/evaluate '((lambda (exp env)
+                        ;; unfortunately, `cond` and `case` are macros :(
+                        ;; we cannot add them easily to the environment,
+                        ;; therefore we just use nested ifs
+                        (if (atom? exp)
+                          (if (symbol? exp)
+                            (lookup exp env)
+                            (if (number? exp)
+                              exp
+                              (if (string? exp)
+                                exp
+                                (if (char? exp)
+                                  exp
+                                  (if (boolean? exp)
+                                    exp
+                                    (if (vector? exp)
+                                      exp
+                                      (wrong "Cannot evaluate - unknown atomic expression?" exp)))))))
+                          (if (= 'quote (first exp))
+                            (second exp)
+                            (if (= 'if (first exp))
+                              (if (evaluate (second exp) env)
+                                (evaluate (nth exp 2) env)
+                                (evaluate (nth exp 3) env))
+                              (if (= 'begin (first exp))
+                                (eprogn (rest exp) env)
+                                (if (= 'set! (first exp))
+                                  (update! (second exp) env (evaluate (nth exp 2) env))
+                                  (if (= 'lambda (first exp))
+                                    (make-function (second exp) (nnext exp) env)
+
+                                    (evlis (rest exp) env))))))))
+                ;; the expression that should be evaluated by the inner evaluate
+                (quote (plus 10 10))
+                ;; TODO: I don't know how to pass environment properly so that
+                ;; + symbol gets resolved to `my-plus` function :((
+                ;; problem here is that vectors are primitives so the values in them are not resolved
+                (extend env-init '[plus] [plus])
+                )
+              (merge
+               e/env-global
+               {;; standard clojure functions/primitives used in `e/evaluate`
+                'if (lift my-if 3)
+                'symbol? (lift symbol? 1)
+                'some-fn (lift some-fn {:min-arity 1})
+                'wrong (lift e/wrong {:min-arity 2})
+                'number? (lift number? 1)
+                'string? (lift string? 1)
+                'char? (lift char? 1)
+                'boolean? (lift boolean? 1)
+                'vector? (lift vector? 1)
+                '= (lift = {:min-arity 2})
+                ;; TODO: this doesn't work for some reason
+                ;; '+ (lift + {:min-arity 2})
+                'plus my-plus
+                'first (lift first 1)
+                'second (lift second 1)
+                'nth (lift nth 2)
+                'rest (lift rest 1)
+
+                ;; custom functions used in `e/evaluate`
+                'atom? (lift e/atom? 1)
+                'evlis (lift e/evlis {:min-arity 2 :max-arity 3})
+                'eprogn (lift e/eprogn 2)
+                'env-init e/env-init
+                'extend (lift e/extend 3)})))
+
+(call-eval-in-eval)
+;; Why it returns a tuple???
+;; => (10 10)
+
+(comment
+  (time (dotimes [i 100000]
+         (call-eval-in-eval)))
+  "Elapsed time: 1814.614127 msecs"
+
+  .)
+
+(e/evaluate '[1 2 3]
+            {})
+;; => [1 2 3]
