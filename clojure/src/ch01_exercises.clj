@@ -488,7 +488,7 @@
 
 
 
-;;; 2. Then compare the speed of `evaluate` and `evaluate` interpreted by `evaluate`.
+;;; 2. Then compare the speed of `evaluate` and "`evaluate` interpreted by `evaluate`".
 ;;; How can I run `evaluate` interpreted by `evaluate`?
 ;;; Do I need to extend `evaluate` definition to recognize itself?
 ;;; or do I just need to use `defprimitive`?
@@ -507,3 +507,97 @@
 ;; => wrapping evaluate within another evaluate adds little overhead
 ;; it'a almost the same thing.
 
+;;; ... but as Chouser said on slack I was probably doing it wrong: https://lisp2022.slack.com/archives/C03C3NMCM7T/p1653315172321359?thread_ts=1653314754.685179&cid=C03C3NMCM7T
+;;;       The way I read the exercise, for the last measurement rather than using defprimitive on evaluate
+;;;       we'd need to quote the whole of evaluate and pass it (and all the functions it calls) to evaluate .
+;;;       I would expect the slowdown to be very dramatic.
+
+(defn my-if [pred then else]
+  (if pred then else))
+
+(defn my-plus [vals]
+  (prn "my-plus called with vals:" vals)
+  (apply + vals))
+
+(defn call-eval-in-eval []
+  (e/evaluate '((lambda (exp env)
+                        ;; unfortunately, `cond` and `case` are macros :(
+                        ;; we cannot add them easily to the environment,
+                        ;; therefore we just use nested ifs
+                        (if (atom? exp)
+                          (if (symbol? exp)
+                            (lookup exp env)
+                            (if (number? exp)
+                              exp
+                              (if (string? exp)
+                                exp
+                                (if (char? exp)
+                                  exp
+                                  (if (boolean? exp)
+                                    exp
+                                    (if (vector? exp)
+                                      exp
+                                      (wrong "Cannot evaluate - unknown atomic expression?" exp)))))))
+                          (if (= 'quote (first exp))
+                            (second exp)
+                            (if (= 'if (first exp))
+                              (if (evaluate (second exp) env)
+                                (evaluate (nth exp 2) env)
+                                (evaluate (nth exp 3) env))
+                              (if (= 'begin (first exp))
+                                (eprogn (rest exp) env)
+                                (if (= 'set! (first exp))
+                                  (update! (second exp) env (evaluate (nth exp 2) env))
+                                  (if (= 'lambda (first exp))
+                                    (make-function (second exp) (nnext exp) env)
+
+                                    (evlis (rest exp) env))))))))
+                ;; the expression that should be evaluated by the inner evaluate
+                (quote (plus 10 10))
+                ;; TODO: I don't know how to pass environment properly so that
+                ;; + symbol gets resolved to `my-plus` function :((
+                ;; problem here is that vectors are primitives so the values in them are not resolved
+                (extend env-init '[plus] [plus])
+                )
+              (merge
+               e/env-global
+               {;; standard clojure functions/primitives used in `e/evaluate`
+                'if (lift my-if 3)
+                'symbol? (lift symbol? 1)
+                'some-fn (lift some-fn {:min-arity 1})
+                'wrong (lift e/wrong {:min-arity 2})
+                'number? (lift number? 1)
+                'string? (lift string? 1)
+                'char? (lift char? 1)
+                'boolean? (lift boolean? 1)
+                'vector? (lift vector? 1)
+                '= (lift = {:min-arity 2})
+                ;; TODO: this doesn't work for some reason
+                ;; '+ (lift + {:min-arity 2})
+                'plus my-plus
+                'first (lift first 1)
+                'second (lift second 1)
+                'nth (lift nth 2)
+                'rest (lift rest 1)
+
+                ;; custom functions used in `e/evaluate`
+                'atom? (lift e/atom? 1)
+                'evlis (lift e/evlis {:min-arity 2 :max-arity 3})
+                'eprogn (lift e/eprogn 2)
+                'env-init e/env-init
+                'extend (lift e/extend 3)})))
+
+(call-eval-in-eval)
+;; Why it returns a tuple???
+;; => (10 10)
+
+(comment
+  (time (dotimes [i 100000]
+         (call-eval-in-eval)))
+  "Elapsed time: 1814.614127 msecs"
+
+  .)
+
+(e/evaluate '[1 2 3]
+            {})
+;; => [1 2 3]
