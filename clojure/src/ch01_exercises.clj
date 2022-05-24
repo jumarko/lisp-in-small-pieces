@@ -519,6 +519,9 @@
   (prn "my-plus called with vals:" vals)
   (apply + vals))
 
+;; This is futile;
+;; until I can recursively call a function in the language I'm defining, it cannot work
+;; Here, the lambda is serving as inner 'evaluate' but it cannot call itself :(
 (defn call-eval-in-eval []
   (e/evaluate '((lambda (exp env)
                         ;; unfortunately, `cond` and `case` are macros :(
