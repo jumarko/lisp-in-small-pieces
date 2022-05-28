@@ -328,8 +328,10 @@
       ;; for the function we want to create/call (?), and we pass the rest of
       ;; the expression `e` as the function's args.
       lambda (f-make-function (second e) (nnext e) env fenv)
-      (evaluate-application (f-evaluate (first e) env fenv)
-                            (f-evlis (rest e) env fenv)))))
+      (evaluate-application (first e)
+                            (f-evlis (rest e) env fenv)
+                            env
+                            fenv))))
 
 ;; evaluate non-functional expressions should still work as expected
 (assert (= (f-evaluate 1 {} {}) 2))
@@ -386,5 +388,37 @@
 ;; => 1
 ;; TODO should the above have worked without a definition of `evaluate-application`? Why?
 
-;; TODO
-(defn evaluate-application [fn args env fenv])
+(defn evaluate-application [fn args env fenv]
+  (cond (symbol? fn)
+        ;; symbol single-level function (no nesting) =>
+        ;; bind functional symbol to var + invoke it
+        (invoke (lookup fn fenv) args)
+        ;; if it's a list i.e. contains another function
+        ;; then we need to bind the variables in the child
+        ;; list with a call to `eprogn`
+        (and (list fn) (= (first fn) 'lambda))
+        (f-eprogn (nnext fn)
+                  (extend env (first (rest fn)) args)
+                  fenv)
+        :else (wrong "Incorrect functional term" fn {:fn fn
+                                                     :args args
+                                                     :env env
+                                                     :fenv fenv})))
+
+
+(f-evaluate '((lambda (a)
+                    ;; `a` isn't present in the environment visible to this inner lambda
+                    ((lambda (b) (list a b))
+                     (+ 2 a)))
+            1)
+          ;; don't need to ut anything in env
+          {}
+          ;; have to provide relevant host functions in fenv
+          {'+ +
+           'list list})
+;; => (1 3)
+
+;; In the book at this point there is some discussion regarding efficiencies
+;; gained from separating out `env` and `f-env`; in particular around simplifying
+;; `invoke` to no longer check if the `fn` parameter is indeed a `fn` (because
+;; it must be). I haven't implemented this here as it isn't very interesting.
