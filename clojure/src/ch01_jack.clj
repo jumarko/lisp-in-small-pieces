@@ -295,3 +295,96 @@
       (recur))))
 
 (repl)
+
+;; === CHAPTER 2 ===
+
+(declare evaluate-application f-make-function f-evlis f-eprogn)
+
+;; f-evaluate
+(defn f-evaluate [e env fenv]
+  (if (atom? e)
+    (cond
+      ;; Symbols are simply looked up in the environment
+      (symbol? e) (lookup e env)
+      ;; Various other atomic values are _autoquoted_
+      ;; ((some-fn number? string? char? boolean? vector?) exp) exp
+      ((some-fn number? boolean? string? char? vector?) e) e
+      :else (wrong "Unable to evaluate atom" e))
+    ;; More complex forms: quote, if, begin (i.e. `do`...), set! and lambdas (functions)
+    ;; We now know that `e` is not atomic, so we look at its first element to decide how to proceed.
+    (case (first e)
+      quote (second e)
+      if (if (f-evaluate (second e) env fenv)
+           (f-evaluate (nth e 2) env fenv)
+           (f-evaluate (nth e 3) env fenv))
+      ;; `begin` is a country cousin of Clojure's `do`
+      begin (f-eprogn (last e) env fenv)
+      ;; `set!` updates (mutates) the value of a variable in the environment
+      ;; i.e. it associates the second element of the expression with the
+      ;;      value obtained by evaluating the following element...
+      set! (update! (second e) env (f-evaluate (nth e 2) env fenv))
+      ;; lambda means "make a function from this expression"
+      ;; the second element of the expression is taken to be the name/symbol (?)
+      ;; for the function we want to create/call (?), and we pass the rest of
+      ;; the expression `e` as the function's args.
+      lambda (f-make-function (second e) (nnext e) env fenv)
+      (evaluate-application (f-evaluate (first e) env fenv)
+                            (f-evlis (rest e) env fenv)))))
+
+;; evaluate non-functional expressions should still work as expected
+(assert (= (f-evaluate 1 {} {}) 2))
+;; => nil  :ta-da:
+
+;; now define f-* variants of evaluator helpers (evlis, eprogn etc.)
+(defn f-eprogn
+  "Evaluates a sequence of expressions `exps` in an environment `env`."
+  [exps env fenv]
+  (if (list? exps)
+    (let [[fst & rst] exps
+          ;; We always want to evaluate the fst expression
+          ;; so that we know how to proceed with the rst
+          fst-val (f-evaluate fst env fenv)]
+      (if (list? rst)
+        (f-eprogn rst env fenv)
+        fst-val))
+    ()))
+
+;; should work as before
+(assert (= (f-eprogn '('a 'b 'c) {} {}) 'c))
+;; => nil
+(assert (= (f-eprogn '("foo" "bar" "baz") {} {}) "baz"))
+;; => nil
+;; Should return the value of the second if statement
+(assert (= (f-eprogn '((if true "true" "false") (if false "true" "false")) {} {}) "false"))
+;; => nil
+
+(defn f-evlis
+  "Takes a list of expressions `exps` and returns a list of their values."
+  [exps env fenv]
+  (if (list? exps)
+    (letfn [(f-evaluate' [exp] (f-evaluate exp env fenv))]
+      (map f-evaluate' exps))
+    ()))
+
+;; should work as before
+(f-evlis '((if false "true" "false")) {} {})
+;; => ("false")
+(f-evlis '((if false "true" "false") false) {} {})
+;; => ("false" false)
+(f-evlis '((if false "true" "fasle") "hey" false 21) {} {})
+;; => ("fasle" "hey" false 21)
+(f-evlis "foobar" {} {})
+;; => ()
+(f-evlis '(1 2 3) {} {})
+;; => (1 2 3)
+
+(defn f-make-function [variables body env fenv]
+  (fn [& values]
+    (f-eprogn body (extend env variables values) fenv)))
+
+((f-evaluate '(lambda (a b) a) {} {}) 1 2)
+;; => 1
+;; TODO should the above have worked without a definition of `evaluate-application`? Why?
+
+;; TODO
+(defn evaluate-application [fn args env fenv])
