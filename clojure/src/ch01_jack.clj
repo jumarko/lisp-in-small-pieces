@@ -422,3 +422,6 @@
 ;; gained from separating out `env` and `f-env`; in particular around simplifying
 ;; `invoke` to no longer check if the `fn` parameter is indeed a `fn` (because
 ;; it must be). I haven't implemented this here as it isn't very interesting.
+;;
+;; Also, the efficiency gains really aren't so important here because we are
+;; using a hashmap and no an association list.
