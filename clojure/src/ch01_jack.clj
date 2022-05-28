@@ -221,3 +221,75 @@
           {'+ +
            'list list})
 ;; => (1 3)
+
+;; Exercise 1.1 - modify evaluate to add tracing
+(defn evaluate [e env]
+  (if (atom? e)
+    (cond
+      ;; Symbols are simply looked up in the environment
+      (symbol? e) (lookup e env)
+      ;; Various other atomic values are _autoquoted_
+      ;; ((some-fn number? string? char? boolean? vector?) exp) exp
+      ((some-fn number? boolean? string? char? vector?) e) e
+      :else (wrong "Unable to evaluate atom" e))
+    ;; More complex forms: quote, if, begin (i.e. `do`...), set! and lambdas (functions)
+    ;; We now know that `e` is not atomic, so we look at its first element to decide how to proceed.
+    (case (first e)
+      quote (second e)
+      if (if (evaluate (second e) env)
+           (evaluate (nth e 2) env)
+           (evaluate (nth e 3) env))
+      ;; `begin` is a country cousin of Clojure's `do`
+      begin (eprogn (last e) env)
+      ;; `set!` updates (mutates) the value of a variable in the environment
+      ;; i.e. it associates the second element of the expression with the
+      ;;      value obtained by evaluating the following element...
+      set! (update! (second e) env (evaluate (nth e 2) env))
+      ;; lambda means "make a function from this expression"
+      ;; the second element of the expression is taken to be the name/symbol (?)
+      ;; for the function we want to create/call (?), and we pass the rest of
+      ;; the expression `e` as the function's args.
+      lambda (make-function (second e) (nnext e) env)
+      (let [fun (evaluate (first e) env)
+            args (evlis (rest e) env)
+            res (invoke fun args)]
+        (println "Evaluate function " (first e) " With args " args " Result is " res)
+        res))))
+
+(evaluate 1 {})
+;; => 1
+
+(evaluate '(+ 1 2) {'+ +})
+;; => nil
+;; => nil
+;; => 3
+
+(list [1 2 3])
+;; => ([1 2 3])
+
+(list 1 2 3)
+;; => (1 2 3)
+
+(defn mi-list [& args]
+  (apply list args))
+
+(mi-list 1 2 3)
+;; => (1 2 3)
+
+(defn end []
+  'repl-exit)
+
+(def env-global {'+ +
+                 'end end})
+
+(defn repl1 []
+  (let [res (evaluate (read) env-global)]
+    res))
+
+(defn repl []
+  (let [res (repl1)]
+    (if (= res 'repl-exit)
+      (println "Bye!")
+      (recur))))
+
+(repl)
