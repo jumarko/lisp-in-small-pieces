@@ -126,6 +126,8 @@
 ;; => 6
 (invoke inc '(10))
 ;; => 11
+;;
+;; => using `apply` works out fine!
 
 ;; I think we're now ready to try the full `evaluate` function.
 #_(evaluate '(+ (1 2 3)) {})
