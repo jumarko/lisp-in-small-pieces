@@ -44,11 +44,10 @@
     ;; here we could also return `nil` or other value - see discussion on p.10
     ()))
 
-(defn lookup [exp env]
-  (if-let [[_k v] (find env exp)]
+(defn lookup [id env]
+  (if-let [[_k v] (find env id)]
     v
-    ;; resolve symbols to the object it points to
-    (some-> exp resolve var-get)))
+    (wrong "No such binding" id)))
 
 ;; ... we also need evlis which is only defined in section 1.4.6 (p.12)
 (defn evlis [exps env]
@@ -222,6 +221,7 @@
   ;; For now, we simply ignore the mutability aspect and return a modified copy
   (defprimitive set-cdr! (fn [xs new-rst] (cons (first xs) new-rst)) 2)
   (defprimitive + + 2)
+  (defprimitive * * 2)
   (defprimitive eq? = 2)
   (defprimitive < < 2)
   (defprimitive list (fn [& values] (or values ())) {:min-arity 0})
@@ -250,6 +250,7 @@
 (assert (= 1 (evaluate '(car [1 2 3]) env-global)))
 (assert (= '(1 20 30) (evaluate '(set-cdr! [1 2 3] [20 30]) env-global)))
 (assert (= 110 (evaluate '(+ 10 100) env-global)))
+(assert (= 1000 (evaluate '(* 10 100) env-global)))
 (assert (false? (evaluate '(eq? '(1 2) [1 2 3]) env-global)))
 (assert (true? (evaluate '(eq? '(1 2 3) [1 2 3]) env-global)))
 (assert (true? (evaluate '(< 2 3) env-global)))
