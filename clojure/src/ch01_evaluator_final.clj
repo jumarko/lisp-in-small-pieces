@@ -250,6 +250,7 @@
 (assert (= 1 (evaluate '(car [1 2 3]) env-global)))
 (assert (= '(1 20 30) (evaluate '(set-cdr! [1 2 3] [20 30]) env-global)))
 (assert (= 110 (evaluate '(+ 10 100) env-global)))
+(assert (= 1000 (evaluate '(* 10 100) env-global)))
 (assert (false? (evaluate '(eq? '(1 2) [1 2 3]) env-global)))
 (assert (true? (evaluate '(eq? '(1 2 3) [1 2 3]) env-global)))
 (assert (true? (evaluate '(< 2 3) env-global)))

@@ -69,14 +69,14 @@
   (fn [values]
     ;; notice that `fenv` isn't extended since it's only for functions,
     ;; not for the variables inside the body of the function
-    (f-eprogn body (extend env variables values) fenv)))
+    (f-eprogn body (e/extend env variables values) fenv)))
 
 ;; ... and finally we can implement `evaluate-application`
 (defn evaluate-application [f args env fenv]
   (cond
     ;; function symbol -> invoke it right away
     (symbol? f)
-    (e/invoke f args)
+    (e/invoke (e/lookup f fenv) args) ; notice we lookup the function symbol in `fenv`
 
     ;; lambda forms are also supported - notice they don't produce a function object (via `f-make-function`)
     ;; but instead are evaluated directly
@@ -84,23 +84,99 @@
     ;; this is the same thing as body of the function produced by `f-make-function`
     ;; - using `(nnext f)` to skip lambda symbol and its arglist
     ;; - using `(second f)` to get the arg list, that is the list of symbols that should be bound to their values (`args`)
-    (f-eprogn (nnext f) (extend env (second f) args) fenv)
+    (f-eprogn (nnext f) (e/extend env (second f) args) fenv)
 
     :else (e/wrong "Incorrect functional term" f {:f f :args args :fenv fenv :env env})))
+
+;; we define our own + and * functions to be able to pass them
+;; inside `fenv` - normally, they are defined  in `e/env-global`.
+;; the reason why we cannot simply use clojure.core functions
+;; is that we need to call `apply` since the arguments are wrapped within a list.
+(defn my+ [args] (apply + args))
+(defn my* [args] (apply * args))
+(assert (= 7
+           (f-evaluate '(+ 3 4) {} {'+ my+})))
 
 ;; now compare `evaluate` and `f-evaluate`
 ;; - without special support, with `f-evaluate` you shouldn't be able to use more complicated forms in a function position
 ;; (this example using `(if condition + *)` comes from p. 37)
-(assert (= 7 (e/evaluate '((if condition + *) 3 4) (assoc e/env-global 'condition true))))
-(assert (= 12 (e/evaluate '((if condition + *) 3 4) (assoc e/env-global 'condition false))))
+(assert (= 7 (e/evaluate '((if condition + *) 3 4)
+                         {'condition true '+ my+ '* my*})))
+(assert (= 12 (e/evaluate '((if condition + *) 3 4)
+                          {'condition false '+ my+ '* my*})))
 
 ;; f-evaluate doesn't know how to evaluate non-function forms in the function position
 (try
   (f-evaluate '((if condition + *) 3 4)
-              (assoc e/env-global 'condition true)
-              {})
+              {'condition true}
+              {'+ my+ '* my*})
   (assert false "f-evaluate should fail when called with a non-function form in the function position")
   (catch Exception e
     (assert (= "Incorrect functional term" (ex-message e)))))
 
+
+;; Now, the other difference between `f-evaluate` and `e/evaluate` is that
+;; `f-evaluate` can invoke lambda forms directly without creating a function object.
+;; Consider this example and enable tracing for `f-evaluate` and `e/evaluate`:
+
+(f-evaluate '((lambda (x) (* x x)) 3)
+            {'x 2}
+            {'* my*})
+;; TRACE t11240: (ch02-lisp2/f-evaluate ((lambda (x) (* x x)) 3) {x 2} {* #function[ch02-lisp2/my*]})
+;; TRACE t11241: | (ch02-lisp2/f-evaluate 3 {x 2} {* #function[ch02-lisp2/my*]})
+;; TRACE t11241: | => 3
+;; TRACE t11242: | (ch02-lisp2/f-evaluate (* x x) {x 3} {* #function[ch02-lisp2/my*]})
+;; TRACE t11243: | | (ch02-lisp2/f-evaluate x {x 3} {* #function[ch02-lisp2/my*]})
+;; TRACE t11243: | | => 3
+;; TRACE t11244: | | (ch02-lisp2/f-evaluate x {x 3} {* #function[ch02-lisp2/my*]})
+;; TRACE t11244: | | => 3
+;; TRACE t11242: | => 9
+;; TRACE t11240: => 9
+
+(e/evaluate '((lambda (x) (* x x)) 3)
+            {'x 2 '* my*})
+;; TRACE t11247: (ch01-evaluator-final/evaluate ((lambda (x) (* x x)) 3) {x 2, * #function[ch02-lisp2/my*]})
+;; TRACE t11248: | (ch01-evaluator-final/evaluate (lambda (x) (* x x)) {x 2, * #function[ch02-lisp2/my*]})
+;; TRACE t11248: | => #function[ch01-evaluator-final/make-function/fn--10567]
+;; TRACE t11249: | (ch01-evaluator-final/evaluate 3 {x 2, * #function[ch02-lisp2/my*]})
+;; TRACE t11249: | => 3
+;; TRACE t11250: | (ch01-evaluator-final/evaluate (* x x) {x 3, * #function[ch02-lisp2/my*]})
+;; TRACE t11251: | | (ch01-evaluator-final/evaluate * {x 3, * #function[ch02-lisp2/my*]})
+;; TRACE t11251: | | => #function[ch02-lisp2/my*]
+;; TRACE t11252: | | (ch01-evaluator-final/evaluate x {x 3, * #function[ch02-lisp2/my*]})
+;; TRACE t11252: | | => 3
+;; TRACE t11253: | | (ch01-evaluator-final/evaluate x {x 3, * #function[ch02-lisp2/my*]})
+;; TRACE t11253: | | => 3
+;; TRACE t11250: | => 9
+;; TRACE t11247: => 9
+
+;; We can see that `e/evaluate` has more work to do because it creates a function object,
+;; that is `#function[ch01-evaluator-final/make-function/fn--10567]` in the output above
+
+
+;; Finally, when would `f-evaluate` still call `f-make-function`
+;; instead of executing the lambda form right away?
+;; One example is when we don't apply the function immediately
+(assert (fn?
+         (f-evaluate '(lambda (x) (* x x))
+                     {'x 2}
+                     {'* my*})))
+;; TRACE t11284: (ch02-lisp2/f-evaluate (lambda (x) (* x x)) {x 2} {* #function[ch02-lisp2/my*]})
+;; TRACE t11284: => #function[ch02-lisp2/f-make-function/fn--11194]
+
+;; that returns a function object to the host environment.
+;; we can apply it in Clojure though
+(assert (= 100
+           ((f-evaluate '(lambda (x) (* x x))
+                        {'x 2}
+                        {'* my*})
+            [10])))
+;; TRACE t11287: (ch02-lisp2/f-evaluate (lambda (x) (* x x)) {x 2} {* #function[ch02-lisp2/my*]})
+;; TRACE t11287: => #function[ch02-lisp2/f-make-function/fn--11194]
+;; TRACE t11288: (ch02-lisp2/f-evaluate (* x x) {x 10} {* #function[ch02-lisp2/my*]})
+;; TRACE t11289: | (ch02-lisp2/f-evaluate x {x 10} {* #function[ch02-lisp2/my*]})
+;; TRACE t11289: | => 10
+;; TRACE t11290: | (ch02-lisp2/f-evaluate x {x 10} {* #function[ch02-lisp2/my*]})
+;; TRACE t11290: | => 10
+;; TRACE t11288: => 100
 
