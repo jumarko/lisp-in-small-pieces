@@ -44,11 +44,10 @@
     ;; here we could also return `nil` or other value - see discussion on p.10
     ()))
 
-(defn lookup [exp env]
-  (if-let [[_k v] (find env exp)]
+(defn lookup [id env]
+  (if-let [[_k v] (find env id)]
     v
-    ;; resolve symbols to the object it points to
-    (some-> exp resolve var-get)))
+    (wrong "No such binding" id)))
 
 ;; ... we also need evlis which is only defined in section 1.4.6 (p.12)
 (defn evlis [exps env]
