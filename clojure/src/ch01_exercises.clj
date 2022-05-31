@@ -15,6 +15,9 @@
 ;; We probably need to redefine make-function to make it work;
 ;; and similarly to `ch01-evaluator.d-evaluate`,
 ;; you also need to redefine a bunch of other functions
+;; Note: in the book, they simply did it by injecting trace points
+;; directly into `evaluate` itself => no need to modify other functions.
+
 (declare trace-evaluate)
 
 (defn trace-eprogn

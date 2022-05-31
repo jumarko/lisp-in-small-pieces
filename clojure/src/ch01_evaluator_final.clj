@@ -222,6 +222,7 @@
   ;; For now, we simply ignore the mutability aspect and return a modified copy
   (defprimitive set-cdr! (fn [xs new-rst] (cons (first xs) new-rst)) 2)
   (defprimitive + + 2)
+  (defprimitive * * 2)
   (defprimitive eq? = 2)
   (defprimitive < < 2)
   (defprimitive list (fn [& values] (or values ())) {:min-arity 0})
