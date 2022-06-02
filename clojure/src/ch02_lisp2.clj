@@ -246,3 +246,36 @@
             ;; Note: I'm not sure this is how they meat to use funcall but it should be possible
             {'+ my+ '* my* 'funcall funcall})
 ;; => 7
+
+
+;;; 2.2.3 - Using Lisp2
+;;; We are still limited to using only function explicitly specified in `fenv`.
+
+;; this doesn't work:
+#_(f-evaluate '(car '(1 2 3)) {} {'funcall funcall})
+;; No such binding
+;; {:expression car, :extra-info nil}
+
+
+
+;;; TO fix that, we introduce `f-env-global` and helper macros to define global functions.
+(def fenv-global {})
+(defmacro definitial-function
+  "Defines a new symbol in the global environment bound to given value
+  or 'ch01-evaluator/void if no value is provided."
+  ([name]
+   `(definitial-function ~name :ch01-evaluator/void))
+  ([name value]
+   `(alter-var-root #'fenv-global #(e/extend % ['~name] [~value]))))
+(defmacro f-defprimitive
+  [name f arity]
+  `(definitial-function ~name (e/lift ~f ~arity)))
+
+(defn f-stdlib []
+  (f-defprimitive car first 1)
+  (f-defprimitive cons cons 2))
+(f-stdlib)
+
+;; ... and now we can call `car`!
+(f-evaluate '(car '(1 2 3)) {} fenv-global)
+;; => 1
