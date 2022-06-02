@@ -198,9 +198,9 @@
 ;; (not being able to call the result of an expression as an function)
 #_(f-evaluate '(funcall (if condition + *) 3 4)
             {'condition true}
-            ;; Note: I'm not sure this is how they meat to use funcall but it should be possible
+            ;; Note: I'm not sure this is how they meant to use funcall but it should be possible
             {'+ my+ '* my* 'funcall funcall})
-;; => we get an error that + isn't defined as in the 'parametric world'
+;; => we get an error that + isn't defined in the 'parametric world'
 ;; (that is in the variable environment, as opposed to the functional environment, where it _is_ defined)
 ;; No such binding
 ;; {:expression +, :extra-info nil}
