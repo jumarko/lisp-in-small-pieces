@@ -180,3 +180,69 @@
 ;; TRACE t11290: | => 10
 ;; TRACE t11288: => 100
 
+
+
+;;; funcall and function (special form) - p. 36,37
+;;; - `funcall` allows us to take a result of an expression evaluated in the 'parametric world'
+;;;   and treat is as a function
+;;; - `function` allows us to get a functional value of the variable from the function world
+;;;   (like * treated as a function, not variable denoting the last expression in Scheme / Common Lisp REPL.)
+
+;; our first attempt to define funcall might look like this (at the bottom of the page 36)
+(defn funcall [[f & args]]
+  (if (> (count args) 1)
+    (e/invoke f args)
+    (e/wrong "Incorrect arity" 'funcall)))
+
+;; a naive attempt to use `funcall` to fix our earlier problem
+;; (not being able to call the result of an expression as an function)
+#_(f-evaluate '(funcall (if condition + *) 3 4)
+            {'condition true}
+            ;; Note: I'm not sure this is how they meat to use funcall but it should be possible
+            {'+ my+ '* my* 'funcall funcall})
+;; => we get an error that + isn't defined as in the 'parametric world'
+;; (that is in the variable environment, as opposed to the functional environment, where it _is_ defined)
+;; No such binding
+;; {:expression +, :extra-info nil}
+
+;; ... so we also need a new special form `function`
+;; that returns the functional value/object
+
+(defn f-evaluate [exp env fenv]
+  (if (e/atom? exp)
+    (cond
+      ;; lock immutability of t and f in the interpreter
+      (= 't exp) true
+      (= 'f exp) false
+      (symbol? exp) (e/lookup exp env)
+      ;; Notice that `keyword?` isn't here because keywords are Clojure's thing
+      ;; and aren't present in the Lisp we are trying to implement
+      ((some-fn number? string? char? boolean? vector?) exp) exp
+      :else (e/wrong "Cannot evaluate - unknown atomic expression?" exp))
+
+    ;; we use `first` instead of `car`
+    (case (first exp)
+      quote (second exp)
+      ;; (p.8) we gloss over the fact that in `(if pred)` we use boolean semantics
+      ;; of the implementation language (Clojure - which means `nil` will be falsy);
+      ;; more precisely, we should write `(if-not (= the-false-value (evaluate (second exp) env)))
+      if (if (f-evaluate (second exp) env fenv)
+           (f-evaluate (nth exp 2) env fenv)
+           (f-evaluate (nth exp 3) env fenv))
+      begin (f-eprogn (rest exp) env fenv)
+      set! (e/update! (second exp) env (f-evaluate (nth exp 2) env fenv))
+      lambda (f-make-function (second exp) (nnext exp) env fenv)
+      ;; CHANGE: new special form: `function` (see p.37 and p. 41)
+      function (if
+                 (symbol? (second exp)) (e/lookup (second exp) fenv)
+                 (e/wrong "Incorrect function" (second exp)))
+      (evaluate-application (first exp)
+                            (f-evlis (rest exp) env fenv)
+                            env
+                            fenv))))
+;; now we can use `function` to get the functional values out of `+` and `*` symbols
+(f-evaluate '(funcall (if condition (function +) (function *)) 3 4)
+            {'condition true}
+            ;; Note: I'm not sure this is how they meat to use funcall but it should be possible
+            {'+ my+ '* my* 'funcall funcall})
+;; => 7
