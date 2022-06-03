@@ -273,9 +273,87 @@
 
 (defn f-stdlib []
   (f-defprimitive car first 1)
-  (f-defprimitive cons cons 2))
+  (f-defprimitive cons cons 2)
+  (f-defprimitive + + 2)
+  (f-defprimitive * * 2))
 (f-stdlib)
 
 ;; ... and now we can call `car`!
 (f-evaluate '(car '(1 2 3)) {} fenv-global)
 ;; => 1
+
+
+;;; 2.3.4 Enriching the function environment with `flet` 
+;;; Note: it reminds me clojure.core/letfn
+
+;; flet is a new special form that's implemented in f-evaluate
+(defn f-evaluate [exp env fenv]
+  (if (e/atom? exp)
+    (cond
+      ;; lock immutability of t and f in the interpreter
+      (= 't exp) true
+      (= 'f exp) false
+      (symbol? exp) (e/lookup exp env)
+      ;; Notice that `keyword?` isn't here because keywords are Clojure's thing
+      ;; and aren't present in the Lisp we are trying to implement
+      ((some-fn number? string? char? boolean? vector?) exp) exp
+      :else (e/wrong "Cannot evaluate - unknown atomic expression?" exp))
+
+    ;; we use `first` instead of `car`
+    (case (first exp)
+      quote (second exp)
+      ;; (p.8) we gloss over the fact that in `(if pred)` we use boolean semantics
+      ;; of the implementation language (Clojure - which means `nil` will be falsy);
+      ;; more precisely, we should write `(if-not (= the-false-value (evaluate (second exp) env)))
+      if (if (f-evaluate (second exp) env fenv)
+           (f-evaluate (nth exp 2) env fenv)
+           (f-evaluate (nth exp 3) env fenv))
+      begin (f-eprogn (rest exp) env fenv)
+      set! (e/update! (second exp) env (f-evaluate (nth exp 2) env fenv))
+      lambda (f-make-function (second exp) (nnext exp) env fenv)
+      function (if
+                 (symbol? (second exp)) (e/lookup (second exp) fenv)
+                 (e/wrong "Incorrect function" (second exp)))
+      ;; CHANGE: add `flet` special form
+      flet (let [flet-bindings (second exp)
+                 flet-body (nnext exp)
+                 fn-names (map first flet-bindings)
+                 fn-impls (map (fn [def]
+                                 ;; here is the core of what we do - notice that we use existing fenv
+                                 ;; so that means we can't cross-reference functions defined in `flet` earlier
+                                 (f-make-function (second def) (nnext def) env fenv))
+                               flet-bindings)
+                 fenv-with-fns (e/extend fenv fn-names fn-impls)]
+             (f-eprogn flet-body env fenv-with-fns))
+      (evaluate-application (first exp)
+                            (f-evlis (rest exp) env fenv)
+                            env
+                            fenv))))
+
+;; use it like this
+(f-evaluate '(flet ((square (x) (* x x)))
+                   (lambda (x) (square (square x))))
+            {}
+            fenv-global)
+;; => #function[ch02-lisp2/eval12146/f-make-function--12147/fn--12148]
+
+;; what if we evaluate the function to get an interesting result?
+(f-evaluate '(flet ((square (x) (* x x)))
+                   ((lambda (x) (square (square x)))
+                    2))
+            {}
+            fenv-global)
+;; => 16
+
+;; But we cannot cross-referecne functions inside flet bindings - that would be `flet*`
+;; - note that you only get the error when you try to invoke that lambda in flet's body.
+#_(f-evaluate '(flet ((square (x) (* x x))
+                    (quad (x) (square (square x))))
+                   ((lambda (x) (quad (quad x)))
+                    2))
+            {}
+            fenv-global)
+;; 1. Unhandled clojure.lang.ExceptionInfo
+;; No such binding
+;; {:expression square, :extra-info nil}
+
