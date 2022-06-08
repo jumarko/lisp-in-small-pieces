@@ -328,6 +328,9 @@
       ;; for the function we want to create/call (?), and we pass the rest of
       ;; the expression `e` as the function's args.
       lambda (f-make-function (second e) (nnext e) env fenv)
+      function (if (symbol? (first (rest e)))
+                 (lookup (first (rest e)) fenv)
+                 (wrong "Incorrect function" (first (rest e))))
       (evaluate-application (first e)
                             (f-evlis (rest e) env fenv)
                             env
@@ -425,3 +428,45 @@
 ;;
 ;; Also, the efficiency gains really aren't so important here because we are
 ;; using a hashmap and no an association list.
+
+;; comparing `f-evaluate` and `evaluate`
+(f-evaluate '(if true (+ 1 2) (* 3 4)) {} {'+ + '* *})
+;; => 3
+
+(evaluate '(if true (+ 1 2) (* 3 4)) {'+ + '* *})
+;; => 3
+
+(evaluate '((if true + *) 3 4) {'+ + '* *})
+;; => 7
+
+;; this is the motivator for `funcall` - this example doesn't work with `f-evaluate`
+(try
+  (f-evaluate '((if true + *) 3 4) {} {'+ + '* *})
+  (assert false "f-evaluate should fail with this expression")
+  (catch clojure.lang.ExceptionInfo e
+    (str "caught exception: " (.getMessage e))))
+;; => "caught exception: Incorrect functional term"
+
+;; LISP-2 avoids Clojurey/LISP-1 problems with names like `key` `name` etc. i.e. shadowed symbols
+
+(defn funcall
+  "Applies its first argument (which should be a function) to the rest of the args."
+  [args]
+  (fn [& args]
+    (if (> (count args) 1)
+      (invoke (first args) (rest args))
+      (wrong "Incorrect arity" 'funcall {:args args}))))
+
+;; this should work
+(f-evaluate (funcall '((if true (function +) (function *)) 3 4)) {} {'+ + '* * 'funcall funcall})
+
+;; ...but it doesn't. The expected result here is that `f-evaluate` evaluates the
+;; expression and returns either + or * which then gets called by `funcall`.
+;; I can't really see how this can work without adding a `case` in `f-evaluate` for `funcall`.
+
+(funcall '((if true (function +) (function *)) 3 4))
+;; => #function[ch01-jack/funcall/fn--9477]
+
+;; separately, also add `function` to `f-evaluate`
+(f-evaluate '(function +) {} {'+ +})
+;; => #function[clojure.core/+]
