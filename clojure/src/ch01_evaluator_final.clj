@@ -59,7 +59,7 @@
 (defn invoke [f args]
   (if (fn? f)
     (f args)
-    (wrong "Not a function" f args)))
+    (wrong "Not a function" f {:args args})))
 
 (defn update! [id env value]
   (if (map? env)
