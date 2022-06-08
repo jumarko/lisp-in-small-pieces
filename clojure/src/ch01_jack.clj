@@ -448,11 +448,10 @@
 
 (defn funcall
   "Applies its first argument (which should be a function) to the rest of the args."
-  [args]
-  (fn [& args]
-    (if (> (count args) 1)
-      (invoke (first args) (rest args))
-      (wrong "Incorrect arity" 'funcall {:args args}))))
+  [[f & args]]
+  (if (> (count args) 1)
+    (invoke f args)
+    (wrong "Incorrect arity" 'funcall {:f f :args args})))
 
 ;; this should work
 (f-evaluate (funcall '((if true (function +) (function *)) 3 4)) {} {'+ + '* * 'funcall funcall})
@@ -468,3 +467,59 @@
 ;; separately, also add `function` to `f-evaluate`
 (f-evaluate '(function +) {} {'+ +})
 ;; => #function[clojure.core/+]
+
+;; To get `funcall` to work properly, we need a counterpart `function` marker.
+;; The purpose of `function` is to switch evaluation from the 'parametric' env
+;; to the function env (fenv).
+;;
+;; Useful note from the book: "We introduced funcall because we wanted normal evaluation to lead to a
+;; result before behaving like a function."
+
+(defn f-evaluate [e env fenv]
+  (if (atom? e)
+    (cond
+      ;; Symbols are simply looked up in the environment
+      (symbol? e) (lookup e env)
+      ;; Various other atomic values are _autoquoted_
+      ;; ((some-fn number? string? char? boolean? vector?) exp) exp
+      ((some-fn number? boolean? string? char? vector?) e) e
+      :else (wrong "Unable to evaluate atom" e))
+    ;; More complex forms: quote, if, begin (i.e. `do`...), set! and lambdas (functions)
+    ;; We now know that `e` is not atomic, so we look at its first element to decide how to proceed.
+    (case (first e)
+      quote (second e)
+      if (if (f-evaluate (second e) env fenv)
+           (f-evaluate (nth e 2) env fenv)
+           (f-evaluate (nth e 3) env fenv))
+      ;; `begin` is a country cousin of Clojure's `do`
+      begin (f-eprogn (last e) env fenv)
+      ;; `set!` updates (mutates) the value of a variable in the environment
+      ;; i.e. it associates the second element of the expression with the
+      ;;      value obtained by evaluating the following element...
+      set! (update! (second e) env (f-evaluate (nth e 2) env fenv))
+      ;; lambda means "make a function from this expression"
+      ;; the second element of the expression is taken to be the name/symbol (?)
+      ;; for the function we want to create/call (?), and we pass the rest of
+      ;; the expression `e` as the function's args.
+      lambda (f-make-function (second e) (nnext e) env fenv)
+      ;; CHANGE: add support for evaluating `function` markers
+      function (if (symbol? (first (rest e)))
+                 (lookup (first (rest e)) fenv)
+                 (wrong "Incorrect function" (first (rest e))))
+      (evaluate-application (first e)
+                            (f-evlis (rest e) env fenv)
+                            env
+                            fenv))))
+
+;; some helper functions
+(defn my+ [args] (apply + args))
+(defn my* [args] (apply * args))
+
+(assert (= (my+ '(1 2)) 3))
+(assert (= (my* '(1 2)) 2))
+
+
+(f-evaluate '(funcall (if condition (function +) (function *)) 3 4)
+            {'condition true}
+            ;; Note: I'm not sure this is how they meat to use funcall but it should be possible
+            {'+ my+ '* my* 'funcall funcall})
