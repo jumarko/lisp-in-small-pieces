@@ -328,9 +328,7 @@
       ;; for the function we want to create/call (?), and we pass the rest of
       ;; the expression `e` as the function's args.
       lambda (f-make-function (second e) (nnext e) env fenv)
-      function (if (symbol? (first (rest e)))
-                 (lookup (first (rest e)) fenv)
-                 (wrong "Incorrect function" (first (rest e))))
+      ;; CHANGE: instead of calling `invoke` directly, call a new form `evaluate-application`.
       (evaluate-application (first e)
                             (f-evlis (rest e) env fenv)
                             env
@@ -408,13 +406,12 @@
                                                      :env env
                                                      :fenv fenv})))
 
-
 (f-evaluate '((lambda (a)
                     ;; `a` isn't present in the environment visible to this inner lambda
                     ((lambda (b) (list a b))
                      (+ 2 a)))
             1)
-          ;; don't need to ut anything in env
+          ;; don't need to put anything in env
           {}
           ;; have to provide relevant host functions in fenv
           {'+ +
@@ -463,6 +460,7 @@
 ;; ...but it doesn't. The expected result here is that `f-evaluate` evaluates the
 ;; expression and returns either + or * which then gets called by `funcall`.
 ;; I can't really see how this can work without adding a `case` in `f-evaluate` for `funcall`.
+;; SOLUTION: pass `funcall` in the fenv (function environment).
 
 (funcall '((if true (function +) (function *)) 3 4))
 ;; => #function[ch01-jack/funcall/fn--9477]
