@@ -397,7 +397,7 @@
         ;; if it's a list i.e. contains another function
         ;; then we need to bind the variables in the child
         ;; list with a call to `eprogn`
-        (and (list fn) (= (first fn) 'lambda))
+        (and (list? fn) (= (first fn) 'lambda))
         (f-eprogn (nnext fn)
                   (extend env (first (rest fn)) args)
                   fenv)
