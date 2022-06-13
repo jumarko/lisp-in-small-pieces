@@ -484,3 +484,49 @@
 
 
         .)
+
+
+;;; 2.5 Name Spaces and dynamic variables
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;; Interlude - dynamic variables in Clojure
+;;; dyn. vars
+(def ^:dynamic *dynvar* 10)
+(defn get-it []
+  *dynvar*)
+
+(do 
+  (println "outside:" (get-it))
+  (binding [*dynvar* 11]
+    (println "inside:" (get-it)))
+  (println "outside again:" (get-it)))
+
+(def dynvar 10)
+(defn get-it-var []
+  dynvar)
+(do 
+  (println "outside:" (get-it-var))
+  (alter-var-root #'dynvar inc)
+  (println "inside:" (get-it-var))
+  (alter-var-root #'dynvar dec)
+  (println "outside again:" (get-it-var)))
+
+;; threads
+(do 
+  (println "outside:" (get-it))
+  (binding [*dynvar* 11]
+    (println "inside:" (get-it))
+    (future (println "in the distant future:" *dynvar*))
+    (.start (Thread. #(println "in the thread:" *dynvar*))))
+  (println "outside again:" (get-it)))
+
+;; lazy seqs
+(do
+  (println "outside:" (get-it))
+  (let [xs (binding [*dynvar* 11]
+             (println "inside:" (get-it))
+             (for [x (range 100)]
+               *dynvar*))]
+    (println "lazy seq:" (take 35 xs)))
+  (println "outside again:" (get-it)))
+
