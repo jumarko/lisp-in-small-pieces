@@ -2,7 +2,8 @@
   "Chapter 1: Basic evaluator - final version.
   This is similar to `ch01-evaluator` but skips intermediate steps and experiments.
   As such it provides a clearer picture of the current state of the code,
-  but it lacks some explanations.")
+  but it lacks some explanations."
+  (:refer-clojure :exclude [extend]))
 
 
 ;;; 1.3 (p.4): start building the implementation

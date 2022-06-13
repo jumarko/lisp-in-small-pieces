@@ -469,15 +469,18 @@
 
 ;; But if we flip the function definitions (quad is now first and it uses square defined later)
 ;; it's broken again!
-;; TODO: does this work with the implementation from the book?
+;; Note: this works with the implementation from the book
+;; because they are mutating the mapping in the env
+;; With immutable environment, it's gonna be harder => let's deal with this in section 2.6 (Recursion)
 (comment
  (f-evaluate '(labels ((quad (x) (square (square x)))
-                        (square (x) (* x x)))
-                       (quad 2))
-              {}
-              fenv-global)
- ;; => this unfortunately throws:
+                       (square (x) (* x x)))
+                      (quad 2))
+             {}
+             fenv-global)
+  ;; => this unfortunately throws:
  ;; clojure.lang.ExceptionInfo: Not a function {:expression ch02-lisp2/void, :extra-info ({:args (2)})}
  ;; - this is because `square` function called inside `quad` is resolved to void.
+
 
         .)
