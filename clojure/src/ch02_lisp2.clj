@@ -484,3 +484,197 @@
 
 
         .)
+
+
+;;; 2.5 Name Spaces and dynamic variables
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;; Interlude - dynamic variables in Clojure
+;;; dyn. vars
+(def ^:dynamic *dynvar* 10)
+(defn get-it []
+  *dynvar*)
+
+(do 
+  (println "outside:" (get-it))
+  (binding [*dynvar* 11]
+    (println "inside:" (get-it)))
+  (println "outside again:" (get-it)))
+
+(def dynvar 10)
+(defn get-it-var []
+  dynvar)
+(do 
+  (println "outside:" (get-it-var))
+  (alter-var-root #'dynvar inc)
+  (println "inside:" (get-it-var))
+  (alter-var-root #'dynvar dec)
+  (println "outside again:" (get-it-var)))
+
+;; threads
+(do 
+  (println "outside:" (get-it))
+  (binding [*dynvar* 11]
+    (println "inside:" (get-it))
+    (future (println "in the distant future:" *dynvar*))
+    (.start (Thread. #(println "in the thread:" *dynvar*))))
+  (println "outside again:" (get-it)))
+
+;; lazy seqs
+(do
+  (println "outside:" (get-it))
+  (let [xs (binding [*dynvar* 11]
+             (println "inside:" (get-it))
+             (for [x (range 100)]
+               *dynvar*))]
+    (println "lazy seq:" (take 35 xs)))
+  (println "outside again:" (get-it)))
+
+
+;;; 2.5.1 Dynamic Variables
+
+;; let's try to implement df-evaluate
+;; there's new arg `denv` dedicated to dynamic variables
+;; Note: flet and labels intentionally left out
+
+(declare df-eprogn)
+
+(defn df-evaluate-application [f args env fenv denv]
+  (cond
+    ;; CHANGE: pass `denv` to the function being invoked - see also `df-make-function`
+    (symbol? f) ((f-lookup f fenv) args denv)
+
+    ;; lambda forms are also supported - notice they don't produce a function object (via `f-make-function`)
+    ;; but instead are evaluated directly
+    (and (list? f) (= 'lambda (first f)))
+    ;; this is the same thing as body of the function produced by `f-make-function`
+    ;; - using `(nnext f)` to skip lambda symbol and its arglist
+    ;; - using `(second f)` to get the arg list, that is the list of symbols that should be bound to their values (`args`)
+    (df-eprogn (nnext f) (e/extend env (second f) args) fenv denv)
+
+    :else (e/wrong "Incorrect functional term" f {:f f :args args :fenv fenv :env env})))
+
+(defn df-make-function [variables body env fenv]
+  ;; CHANGE: pass `denv` as a second argument to the function itself
+  ;; See also page 18 (discussion about function execution environments)
+  (fn [values denv]
+    (df-eprogn body (e/extend env variables values) fenv denv)))
+
+(declare df-evlis)
+
+(defn df-evaluate [exp env fenv denv]
+  (if (e/atom? exp)
+    (cond
+      ;; lock immutability of t and f in the interpreter
+      (= 't exp) true
+      (= 'f exp) false
+      (symbol? exp) (e/lookup exp env)
+      ((some-fn number? string? char? boolean? vector?) exp) exp
+      :else (e/wrong "Cannot evaluate - unknown atomic expression?" exp))
+
+    ;; we use `first` instead of `car`
+    (case (first exp)
+      quote (second exp)
+      ;; CHANGE we need to pass `denv` to the recursive calls of `df-evaluate`
+      if (if (df-evaluate (second exp) env fenv denv)
+           (df-evaluate (nth exp 2) env fenv denv)
+           (df-evaluate (nth exp 3) env fenv denv))
+      begin (f-eprogn (rest exp) env fenv)
+      set! (e/update! (second exp) env (df-evaluate (nth exp 2) env fenv denv))
+      lambda (f-make-function (second exp) (nnext exp) env fenv)
+      function (cond
+                 (symbol? (second exp))
+                 (f-lookup (second exp) fenv)
+
+                 (and (list? (second exp)) (= 'lambda (first (second exp))))
+                 ;; CHANGE: invoke `df-make-function`
+                 (df-make-function (second (second exp)) ; lambda's arglist
+                                  (nnext (second exp)) ; lambda's body
+                                  env
+                                  fenv)
+
+                 :else (e/wrong "Incorrect function" (second exp)))
+      ;; CHANGE: new special forms `dynamic`, `dynamic-let`, and `dynamic-set!`
+      dynamic (e/lookup (second exp) denv)
+      ;; TODO: how to make this work with immutable environments?
+      dynamic-set! (e/update! (second exp) denv (df-evaluate (nth exp 2) env fenv denv))
+      dynamic-let (let [body (nnext exp)
+                        bindings (second exp)
+                        syms (map first bindings)
+                        vals (->> bindings
+                                  (map second) ; unevaluated expressions representing values
+                                  (map (fn [val-exp] (df-evaluate val-exp env fenv denv))))]
+                    (df-eprogn body
+                               env
+                               fenv
+                               (e/extend denv syms vals)))
+      (df-evaluate-application (first exp)
+                               ;; CHANGE: df-evlis not presented in the book
+                               (df-evlis (rest exp) env fenv denv)
+                               env
+                               fenv
+                               denv))))
+
+;; Note: they don't show `df-evlis` in the book
+(defn df-evlis [exps env fenv denv]
+  (if (list? exps)
+    (map #(df-evaluate % env fenv denv) exps)
+    ()))
+
+(defn df-eprogn [exps env fenv denv]
+  (if (list? exps)
+    (let [[fst & rst] exps
+          ;; Note: if there are more expressions to be evaluated (recursively)
+          ;; then this is only evaluated for side-effects
+          fst-val (df-evaluate fst env fenv denv)]
+      (if (list? rst)
+        (df-eprogn rst env fenv denv)
+        fst-val))
+    ()))
+
+
+;;; try df-evaluate
+;;; notice that functions now has to accept two args - the arglist and denv
+;;; For that reason, we cannot reuse any former functions defined in global environments
+;;; such as `e/env-global`
+
+;; no dynamic vars, just confirm that it works as before
+(df-evaluate '(* x x)
+             {'x 2}
+             {'* (fn [args _denv] (apply * args))}
+             {})
+;; => 4
+
+;; now use some dynamic magic
+;; ... if you don't specify *l* in denv it fails
+(comment
+  (df-evaluate '(cons (* x x) *l*)
+               {'x 2}
+               {'* (fn [args _denv] (apply * args))
+                'cons (fn [args _denv] (apply cons args))}
+               {})
+    ;; No such binding
+  ;; {:expression *l*, :extra-info nil}
+  .)
+
+;; ... so you are better of setting it
+;; - but wait, it still doesn't work because you are not using the new special form `dynamic` to access it
+(comment
+  (df-evaluate '(cons (* x x) *l*)
+              {'x 2}
+              {'* (fn [args _denv] (apply * args))
+               'cons (fn [args _denv] (apply cons args))}
+              {'*l* '(1 2 3)})
+  ;; No such binding
+  ;; {:expression *l*, :extra-info nil}
+  .)
+
+;; ... so use `dynamic`
+(assert
+ (= '(4 1 2 3)
+    (df-evaluate '(cons (* x x) (dynamic *l*)) ; using `dynamic` special form here
+                 {'x 2}
+                 {'* (fn [args _denv] (apply * args))
+                  'cons (fn [args _denv] (apply cons args))}
+                 {'*l* '(1 2 3)})))
+
