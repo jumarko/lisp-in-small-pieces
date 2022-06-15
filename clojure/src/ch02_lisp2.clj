@@ -581,6 +581,8 @@
            (df-evaluate (nth exp 3) env fenv denv))
       begin (f-eprogn (rest exp) env fenv)
       set! (e/update! (second exp) env (df-evaluate (nth exp 2) env fenv denv))
+      ;; TODO: this should be df-make-function?
+      ;; why the don't have it in the book at all?
       lambda (f-make-function (second exp) (nnext exp) env fenv)
       function (cond
                  (symbol? (second exp))
@@ -677,4 +679,175 @@
                  {'* (fn [args _denv] (apply * args))
                   'cons (fn [args _denv] (apply cons args))}
                  {'*l* '(1 2 3)})))
+
+(binding [*print-length* 10
+          *print-level* 2]
+  (println {:a [1 {:b {:c [10 20 30]}}]})
+  (println (range 100)))
+
+
+
+
+;;; 2.5.2 Dynamic vars in common lisp (p. 48-50)
+;; we can ignore this function for now - it's not even defined in the book
+(defn cl-update! [id env denv value]
+  ;; this is just copied from `e/update!`
+  (if (map? env)
+    ;; TODO: here we should update both environments? (mutation?)
+    (assoc env id value)
+    (e/wrong "Can't understand environment" env {:id id
+                                                 :env env
+                                                 :value value})))
+
+(defn special-extend [env variables]
+  ;; Note: if there's already variable with the same name in env we simply overwrite it
+  (merge env (zipmap variables
+                     ;; we use special keyword as a value of dynamic vars
+                     ;; to distinguish them from non-dynamic vars
+                     ;; these dynamic vars are then looked up in `denv` inside `cl-lookup`
+                     (repeat :lisp/dynamic.var))))
+
+(special-extend {'a 1 'b 2}
+                ['c 'd])
+;; => {a 1, b 2, c :lisp/dynamic.var, d :lisp/dynamic.var}
+
+(defn cl-lookup [var env denv]
+  (if (map? env)
+    ;; all the known symbols should be in `env`...
+    (if-let [[_ value] (find env var)]
+      ;; ... but dynamic vars have only a placeholder value
+      ;; and their real value must be looked up in `denv`
+      ;; - see also `special-extend`
+      (if (= value :lisp/dynamic.var)
+        ;; Notice that unlike in the book (p.49) we do not fallback to `e/env-global`
+        ;; - not sure why they did it
+        (e/lookup var denv)
+        value)
+      (e/wrong "No such binding" var))
+    (e/wrong "Can't understand environment" env {:id var
+                                                 :env env
+                                                 :denv denv})))
+
+(def test-env (special-extend {'a 1 'b 2}
+                              ['c 'd]))
+test-env
+;; => {a 1, b 2, c :lisp/dynamic.var, d :lisp/dynamic.var}
+
+(cl-lookup 'c test-env {'c 1})
+;; => 1
+(cl-lookup 'b test-env {'c 1})
+;; => 2
+
+
+(defn df-evaluate [exp env fenv denv]
+  (if (e/atom? exp)
+    (cond
+      ;; lock immutability of t and f in the interpreter
+      (= 't exp) true
+      (= 'f exp) false
+      (symbol? exp) (cl-lookup exp env denv)
+      ((some-fn number? string? char? boolean? vector?) exp) exp
+      :else (e/wrong "Cannot evaluate - unknown atomic expression?" exp))
+
+    ;; we use `first` instead of `car`
+    (case (first exp)
+      quote (second exp)
+      ;; CHANGE we need to pass `denv` to the recursive calls of `df-evaluate`
+      if (if (df-evaluate (second exp) env fenv denv)
+           (df-evaluate (nth exp 2) env fenv denv)
+           (df-evaluate (nth exp 3) env fenv denv))
+      begin (f-eprogn (rest exp) env fenv)
+      ;; TODO: cl-update! isn't in the book but it's used
+      set! (cl-update! (second exp) env denv (df-evaluate (nth exp 2) env fenv denv))
+      ;; TODO: this should be df-make-function?
+      ;; why the don't have it in the book at all?
+      lambda (f-make-function (second exp) (nnext exp) env fenv)
+      function (cond
+                 (symbol? (second exp))
+                 (f-lookup (second exp) fenv)
+
+                 (and (list? (second exp)) (= 'lambda (first (second exp))))
+                 (df-make-function (second (second exp)) ; lambda's arglist
+                                  (nnext (second exp)) ; lambda's body
+                                  env
+                                  fenv)
+
+                 :else (e/wrong "Incorrect function" (second exp)))
+      dynamic (e/lookup (second exp) denv)
+      ;; CHANGE: use special-extend to add variables' names also to `env` (not just `denv`)
+      dynamic-let (let [body (nnext exp)
+                        bindings (second exp)
+                        syms (map first bindings)
+                        vals (->> bindings
+                                  (map second) ; unevaluated expressions representing values
+                                  (map (fn [val-exp] (df-evaluate val-exp env fenv denv))))]
+                    (df-eprogn body
+                               ;; CHANGE: instead of passing plain `env` use `special-extend`
+                               (special-extend env syms)
+                               fenv
+                               (e/extend denv syms vals)))
+      (df-evaluate-application (first exp)
+                               (df-evlis (rest exp) env fenv denv)
+                               env
+                               fenv
+                               denv))))
+
+(df-evaluate '(dynamic-let ((x 2)) x) {} {} {})
+;; => 2
+
+(df-evaluate '(dynamic-let ((x 2)) x) {} {} {'x 4})
+;; => 2
+
+;; this is the example at the end of 2.5.2 (p.50)
+;; we use `lambda` instead of `let` because let isn't supported in our language
+(assert
+ (= 13
+    (df-evaluate '(dynamic-let ((x 2))
+                               (+ x ; dynamic va: 2
+                                  ;; `lambda` serves us as `let`
+                                  ((lambda (x) ; lexical var: 9
+                                           (+ x ; lexical var: 9
+                                              (dynamic x) ; dynamic var: 2
+                                              ))
+                                   (+ x x 5) ; dynamic var - value of this exp. will become the lexical var in lambda's body
+                                   )))
+                 {}
+                 {'+ (fn [args _denv] (apply + args))}
+                 {'x 20}))) ; sort of 'global' dynamic var - it's value is never used
+
+
+;; complicate it even more by adding global binding for x
+(assert
+ (= 213
+    (df-evaluate '(+
+                   x
+                   (dynamic-let ((x 2))
+                                (+ x ; dynamic var: 2
+                                   ;; `lambda` serves us as `let`
+                                   ((lambda (x) ; lexical var: 9
+                                            (+ x ; lexical var: 9
+                                               (dynamic x) ; dynamic var: 2
+                                               ))
+                                    (+ x x 5) ; dynamic var - value of this exp. will become the lexical var in lambda's body
+                                    )))
+                   x)
+                 {'x 100}
+                 {'+ (fn [args _denv] (apply + args))}
+                 {'x 20})))
+;; it can be interesting to look at the traces of `cl-lookup`
+;; when the above expression is executed:
+;;
+;; TRACE t14104: (ch02-lisp2/cl-lookup x {x 100} {x 20})
+;; TRACE t14104: => 100
+;; TRACE t14105: (ch02-lisp2/cl-lookup x {x :lisp/dynamic.var} {x 2})
+;; TRACE t14105: => 2
+;; TRACE t14106: (ch02-lisp2/cl-lookup x {x :lisp/dynamic.var} {x 2})
+;; TRACE t14106: => 2
+;; TRACE t14107: (ch02-lisp2/cl-lookup x {x :lisp/dynamic.var} {x 2})
+;; TRACE t14107: => 2
+;; TRACE t14108: (ch02-lisp2/cl-lookup x {x 9} {x 2})
+;; TRACE t14108: => 9
+;; TRACE t14109: (ch02-lisp2/cl-lookup x {x 100} {x 20})
+;; TRACE t14109: => 100
+
 
