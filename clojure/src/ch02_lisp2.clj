@@ -709,8 +709,23 @@
                 ['c 'd])
 ;; => {a 1, b 2, c :ch02-lisp2/dynamic, d :ch02-lisp2/dynamic}
 
-(defn cl-lookup [exp env denv]
-  )
+(defn cl-lookup [id env denv]
+  (if (map? env)
+    (if-let [[_ var] (find env id)]
+      (if (= var :ch02-lisp2/dynamic)
+        (e/lookup id denv)
+        var))
+    (e/wrong "Can't understand environment" env {:id id
+                                                 :env env
+                                                 :denv denv})))
+
+(def test-env (special-extend {'a 1 'b 2}
+                              ['c 'd]))
+
+(cl-lookup 'c test-env {'c 1})
+;; => 1
+(cl-lookup 'b test-env {'c 1})
+;; => 2
 
 
 (defn df-evaluate [exp env fenv denv]
@@ -766,3 +781,19 @@
                                env
                                fenv
                                denv))))
+
+(df-evaluate '(dynamic-let ((x 2)) x) {} {} {})
+;; => 2
+
+(df-evaluate '(dynamic-let ((x 2)) x) {} {} {'x 4})
+;; => 2
+
+(df-evaluate '(dynamic-let ((x 3))
+                           ( (lambda (x)
+                                        (+ x (dynamic x)))
+                            (+ x x) ))
+             {}
+             {'+ (fn [args _denv] (apply + args))}
+             {'x 2})
+;; => 9
+;; => 6
