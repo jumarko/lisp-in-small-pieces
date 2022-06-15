@@ -700,8 +700,7 @@
                                                  :value value})))
 
 (defn special-extend [env variables]
-  ;; TODO: What if there's a lexical variable already in env
-  ;; with the same name as one of `variables`?
+  ;; Note: if there's already variable with the same name in env we simply overwrite it
   (merge env (zipmap variables
                      ;; we use special keyword as a value of dynamic vars
                      ;; to distinguish them from non-dynamic vars
@@ -788,7 +787,6 @@ test-env
                                fenv
                                (e/extend denv syms vals)))
       (df-evaluate-application (first exp)
-                               ;; CHANGE: df-evlis not presented in the book
                                (df-evlis (rest exp) env fenv denv)
                                env
                                fenv
@@ -816,3 +814,40 @@ test-env
                  {}
                  {'+ (fn [args _denv] (apply + args))}
                  {'x 20}))) ; sort of 'global' dynamic var - it's value is never used
+
+
+;; complicate it even more by adding global binding for x
+(assert
+ (= 213
+    (df-evaluate '(+
+                   x
+                   (dynamic-let ((x 2))
+                                (+ x ; dynamic var: 2
+                                   ;; `lambda` serves us as `let`
+                                   ((lambda (x) ; lexical var: 9
+                                            (+ x ; lexical var: 9
+                                               (dynamic x) ; dynamic var: 2
+                                               ))
+                                    (+ x x 5) ; dynamic var - value of this exp. will become the lexical var in lambda's body
+                                    )))
+                   x)
+                 {'x 100}
+                 {'+ (fn [args _denv] (apply + args))}
+                 {'x 20})))
+;; it can be interesting to look at the traces of `cl-lookup`
+;; when the above expression is executed:
+;;
+;; TRACE t14104: (ch02-lisp2/cl-lookup x {x 100} {x 20})
+;; TRACE t14104: => 100
+;; TRACE t14105: (ch02-lisp2/cl-lookup x {x :lisp/dynamic.var} {x 2})
+;; TRACE t14105: => 2
+;; TRACE t14106: (ch02-lisp2/cl-lookup x {x :lisp/dynamic.var} {x 2})
+;; TRACE t14106: => 2
+;; TRACE t14107: (ch02-lisp2/cl-lookup x {x :lisp/dynamic.var} {x 2})
+;; TRACE t14107: => 2
+;; TRACE t14108: (ch02-lisp2/cl-lookup x {x 9} {x 2})
+;; TRACE t14108: => 9
+;; TRACE t14109: (ch02-lisp2/cl-lookup x {x 100} {x 20})
+;; TRACE t14109: => 100
+
+
