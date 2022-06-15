@@ -581,6 +581,8 @@
            (df-evaluate (nth exp 3) env fenv denv))
       begin (f-eprogn (rest exp) env fenv)
       set! (e/update! (second exp) env (df-evaluate (nth exp 2) env fenv denv))
+      ;; TODO: this should be df-make-function?
+      ;; why the don't have it in the book at all?
       lambda (f-make-function (second exp) (nnext exp) env fenv)
       function (cond
                  (symbol? (second exp))
@@ -678,3 +680,89 @@
                   'cons (fn [args _denv] (apply cons args))}
                  {'*l* '(1 2 3)})))
 
+(binding [*print-length* 10
+          *print-level* 2]
+  (println {:a [1 {:b {:c [10 20 30]}}]})
+  (println (range 100)))
+
+
+
+
+;;; 2.5.2 Dynamic vars in common lisp
+;;;
+;; we can ignore this function for now - it's not even defined in the book
+(defn cl-update! [id env denv value]
+  ;; this is just copied from `e/update!`
+  (if (map? env)
+    ;; TODO: here we would update both environments? (mutation?)
+    (assoc env id value)
+    (e/wrong "Can't understand environment" env {:id id
+                                                 :env env
+                                                 :value value})))
+
+(defn special-extend [env variables]
+  ;; TODO: What if there's a lexical variable already in env
+  ;; with the same name as one of `variables`?
+  (merge env (zipmap variables (repeat ::dynamic))))
+
+(special-extend {'a 1 'b 2}
+                ['c 'd])
+;; => {a 1, b 2, c :ch02-lisp2/dynamic, d :ch02-lisp2/dynamic}
+
+(defn cl-lookup [exp env denv]
+  )
+
+
+(defn df-evaluate [exp env fenv denv]
+  (if (e/atom? exp)
+    (cond
+      ;; lock immutability of t and f in the interpreter
+      (= 't exp) true
+      (= 'f exp) false
+      (symbol? exp) (cl-lookup exp env denv)
+      ((some-fn number? string? char? boolean? vector?) exp) exp
+      :else (e/wrong "Cannot evaluate - unknown atomic expression?" exp))
+
+    ;; we use `first` instead of `car`
+    (case (first exp)
+      quote (second exp)
+      ;; CHANGE we need to pass `denv` to the recursive calls of `df-evaluate`
+      if (if (df-evaluate (second exp) env fenv denv)
+           (df-evaluate (nth exp 2) env fenv denv)
+           (df-evaluate (nth exp 3) env fenv denv))
+      begin (f-eprogn (rest exp) env fenv)
+      ;; TODO: cl-update! isn't in the book but it's used
+      set! (cl-update! (second exp) env denv (df-evaluate (nth exp 2) env fenv denv))
+      ;; TODO: this should be df-make-function?
+      ;; why the don't have it in the book at all?
+      lambda (f-make-function (second exp) (nnext exp) env fenv)
+      function (cond
+                 (symbol? (second exp))
+                 (f-lookup (second exp) fenv)
+
+                 (and (list? (second exp)) (= 'lambda (first (second exp))))
+                 (df-make-function (second (second exp)) ; lambda's arglist
+                                  (nnext (second exp)) ; lambda's body
+                                  env
+                                  fenv)
+
+                 :else (e/wrong "Incorrect function" (second exp)))
+      dynamic (e/lookup (second exp) denv)
+      ;; CHANGE: use special-extend to add variables' names also to `env` (not just `denv`)
+      dynamic-let (let [body (nnext exp)
+                        bindings (second exp)
+                        syms (map first bindings)
+                        vals (->> bindings
+                                  (map second) ; unevaluated expressions representing values
+                                  (map (fn [val-exp] (df-evaluate val-exp env fenv denv))))]
+                    (df-eprogn body
+                               ;; CHANGE: instead of passing plain `env` use `special-extend`
+                               (special-extend env syms)
+                               fenv
+                               (e/extend denv syms vals)))
+      (df-evaluate-application (first exp)
+                               ;; CHANGE: df-evlis not presented in the book
+                               (df-evlis (rest exp) env fenv denv)
+                               env
+                               fenv
+                               denv))))
