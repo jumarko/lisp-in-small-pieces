@@ -851,3 +851,171 @@ test-env
 ;; TRACE t14109: => 100
 
 
+
+;;; 2.5.3 Dynamic variables without a special form (p. 50)
+;;; -----
+;;; We can implement dynamic variables even without dedicated
+;;; constructs like `dynamic` and `dynamic-let`
+;;; We could just use plain functions - the only thing we need
+;;; is to supply `denv` to all the functions (that's something what we've been doing
+;;; anyway, see section 2.5.1 - `df-make-function`)
+;;;
+;;; Here we use this just as a demonstration and remove all unnecessary special forms
+;;; and also function environment
+
+(declare dd-evaluate)
+
+(defn dd-evlis [exps env denv]
+  (if (list? exps)
+    (map #(dd-evaluate % env denv) exps)
+    ()))
+
+(defn dd-eprogn [exps env denv]
+  (if (list? exps)
+    (let [[fst & rst] exps
+          ;; Note: if there are more expressions to be evaluated (recursively)
+          ;; then this is only evaluated for side-effects
+          fst-val (dd-evaluate fst env denv)]
+      (if (list? rst)
+        (dd-eprogn rst env denv)
+        fst-val))
+    ()))
+
+(defn dd-make-function [variables body env]
+  ;; CHANGE: pass `denv` as a second argument to the function itself
+  ;; See also page 18 (discussion about function execution environments)
+  (fn [values denv]
+    (dd-eprogn body (e/extend env variables values) denv)))
+
+;; Note: in the book, they simple use `invoke` but that function,
+;; as defined in `e/invoke` doesn't accept `denv` so there's a modified version
+;; (see `chap2f.scm` file)
+(defn dd-invoke [f args denv]
+  (if (fn? f)
+    (f args denv)
+    (e/wrong "Not a function" f {:args args})))
+
+(defn dd-evaluate [exp env denv]
+  (if (e/atom? exp)
+    (cond
+      (symbol? exp) (e/lookup exp env)
+      ((some-fn number? string? char? boolean? vector?) exp) exp
+      :else (e/wrong "Cannot evaluate - unknown atomic expression?" exp))
+
+    ;; we use `first` instead of `car`
+    (case (first exp)
+      quote (second exp)
+      ;; CHANGE we need to pass `denv` to the recursive calls of `df-evaluate`
+      if (if (dd-evaluate (second exp) env denv)
+           (dd-evaluate (nth exp 2) env denv)
+           (dd-evaluate (nth exp 3) env denv))
+      begin (dd-eprogn (rest exp) env denv)
+      set! (e/update! (second exp) env (dd-evaluate (nth exp 2) env denv))
+      ;; TODO: this should be df-make-function?
+      ;; why the don't have it in the book at all?
+      lambda (dd-make-function (second exp) (nnext exp) env)
+      (dd-invoke (dd-evaluate (first exp) env denv)
+                 (dd-evlis (rest exp) env denv)
+                 denv))))
+
+
+;; no dynamic vars, just confirm that it works as before
+(dd-evaluate '(* x x)
+             {'* (fn [args _denv] (apply * args))
+              'x 3}
+             {})
+;; => 9
+
+;; ... but dynamic vars does not work out of the box (yet)
+(comment
+  (dd-evaluate '(* x y)
+               {'* (fn [args _denv] (apply * args))
+                'x 3}
+               {'y 100})
+  ;; No such binding
+  ;; {:expression y, :extra-info nil}
+
+
+  .)
+
+;; ... we could cheat by manually fetching the symbol in `*`
+;; but that's not easy because the symbols are looked up in `dd-evaluate`
+;; prior function calls - so we never get the opportunity to evaluate them?
+(comment 
+  (dd-evaluate '(* x y)
+               {'* (fn [args denv] (apply *
+                                          ;; lookup unknown symbols in denv
+                                          (mapv (fn [arg]
+                                                  (or (try (e/lookup arg denv) (catch Exception _ ))
+                                                      arg))
+                                                args)))
+                'x 3}
+               {'y 100})
+  ;; => Oh yeah, doesn't work O:-)
+  ;; No such binding
+  ;; {:expression y, :extra-info nil}
+  .)
+
+
+;; ... thus let us add the two crucial functions: `bind-de` and `assoc-de`
+;; - notice we how we use `(fn <name> ...)` to help with debugging
+
+;; bind-de takes 3 args: tag, value, and a thunk (0-arg function)
+;; it will enrich the current dynamic environment by binding `tag` to `value`,
+;; then invokes the thunk within this enriched environment
+
+(e/definitial bind-de
+  ;; bind-de like every function in our language must take two params - the list of the function args and denv
+  (fn bind-de [values denv]
+    (if (= 3 (count values))
+      (let [[tag value thunk] values]
+        ;; invoke the thunk after enriching the dynamic environment
+        (dd-invoke thunk () (e/extend denv [tag] [value])))
+      (e/wrong (str "Incorrect arity: " (count values)) 'bind-de {:values values
+                                                                  :denv denv}))))
+
+;; assoc-de exploits the dynamic environment - it will take a 'key' and and a function
+;; and invokes the function if the key is not found in the dynamic environment
+;; if it finds the symbol then it returns its value
+(e/definitial assoc-de
+  (fn assoc-de [values current-denv]
+    (if (= 2 (count values))
+      (let [[tag default-f] values]
+        ;; here we don't use explicit equivalence function but relies on Clojure's default equality semantics
+        (if-let [[_ v] (find current-denv tag)]
+          ;; found the tag (symbol), return its value
+          v
+          ;; invoke the default function if the tag wasn't found in denv
+          (dd-invoke default-f [tag] current-denv)))
+      (e/wrong (str "Incorrect arity: " (count values)) 'assoc-de {:values values
+                                                                   :denv current-denv}))))
+
+;; simple error fn for assoc-de invocations
+(defn error [t env]
+  (println "Unknown tag" t "in environment" env))
+
+;; ... now try my previous example
+;; - first only use `assoc-de` and define y in 'global' denv
+(dd-evaluate '(* x (assoc-de 'y error))
+             (assoc e/env-global
+                    ;; we must override `*` definition in `e/env-global` because it must also take denv
+                    '* (fn [args _denv] (apply * args))
+                    'x 3
+                    'error error)
+             {'y 100})
+;; => 300
+
+;; - now try to bind y with bind-de instead
+(dd-evaluate
+ '(bind-de 'y 100
+           (lambda ()
+                   (* x (assoc-de 'y error))))
+ (assoc e/env-global
+                    ;; we must override `*` definition in `e/env-global` because it must also take denv
+        '* (fn [args _denv] (apply * args))
+        'x 3
+        'error error)
+ {})
+;; => 300 ; YES!!!
+
+
