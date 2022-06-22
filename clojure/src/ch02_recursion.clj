@@ -128,7 +128,7 @@
       local-odd? (fn [n] (if (zero? n) false (local-even? (dec n))))]
   (local-even? 4))
 ;; => nil
-;; as we see that didn't work because it returns nil because we didn't really redefined them in a good way
+;; as we see that didn't work because it returns nil because we didn't really redefine them in a good way
 ;; - in Clojure, we cannot use `set!` to modify local bindings
 
 ;; - let's try again with thread-local vars (see Joy of Clojure, p.258)
@@ -137,12 +137,16 @@
 ;;   - it takes the names and binds each name to a Var object via `let`
 ;;     these Var objects are unnamed and are only initialized in the let's body
 ;;     so they can even refer to each other
-(with-local-vars
- [local-even? (fn [n] (or (zero? n) (local-odd? (dec n))))
-  local-odd? (fn [n] (or (= n 1) (local-even? (dec n))))]
-  (local-even? 4))
-;; => true
-
+(assert
+ (= [true false false true]
+    (with-local-vars
+      [local-even? (fn [n] (if (zero? n) true (local-odd? (dec n))))
+       local-odd? (fn [n] (if (zero? n) false (local-even? (dec n))))]
+      [(local-even? 4)
+       (local-odd? 4)
+       (local-even? 5)
+       (local-odd? 5)
+       ])))
 
 
 ;;; 2.6.5 Creating Unitialized Bindings (p.60)
@@ -222,25 +226,59 @@
                 (e/evlis (rest exp) env)))))
 
 ;; firs try if it can create uninitialized bindings
-(evaluate '(let (local-even? local-odd?)
-             local-even?)
-          {})
+(try
+  (evaluate '(let (local-even? local-odd?)
+               local-even?)
+            {})
+  (assert false "should detect uninitialized binding via lookup")
+  (catch Exception e
+    (assert (= "Uninitialized binding" (ex-message e)))))
+
 ;; => ch02-recursion/non-initialized
 
 ;; Can we now define even? and odd?
+;; - note: this relies on primitives `-` and `=` being defined
+(e/defprimitive - - 2)
+(e/defprimitive = = 2)
+
+;; TODO: this doesn't work
+;; the problem is that environment is immutable and the closure produced by `make-function`
+;; captures the environment as it was when the closure was produced;
+;; that means our `local-odd?` function reference inside `local-even?` body
+;; in the second let is uninitialized and thus fails.
+;;
+;; 1. Unhandled clojure.lang.ExceptionInfo
+;; Not a function
+;; {:expression ch02-recursion/non-initialized, :extra-info ({:args (3)})}
+;; ch01_evaluator_final.clj:   30  ch01-evaluator-final/wrong
+;; ch01_evaluator_final.clj:   29  ch01-evaluator-final/wrong
+;; RestFn.java:  442  clojure.lang.RestFn/invoke
+;; ch01_evaluator_final.clj:   63  ch01-evaluator-final/invoke
+;; ch01_evaluator_final.clj:   60  ch01-evaluator-final/invoke
+;; ch01_evaluator_final.clj:  147  ch01-evaluator-final/evaluate
+;; ...
+;; simple example first:
+(evaluate '(let (local-even? local-odd?)
+             (let ((local-even? (lambda (n) (if (= n 0) 't (local-odd? (- n 1)))))
+                   (local-odd? (lambda (n) (if (= n 0) 'f (local-even? (- n 1))))))
+               (local-even? 4)))
+          e/env-global)
+
+;; more complex example:
 (assert
- (= 't
+ (= '(t f f t)
     (evaluate '(let (local-even? local-odd?)
                  (let ((local-even? (lambda (n) (if (= n 0) 't (local-odd? (- n 1)))))
-                       (local-odd? (lambda (n) (if (= n 1) 'f (local-even? (- n 1))))))
-                   (local-even? 4)))
-              (assoc e/env-global '= =))))
-;; => t
-
+                       (local-odd? (lambda (n) (if (= n 0) 'f (local-even? (- n 1))))))
+                   (list (local-even? 4)
+                         (local-odd? 4)
+                         (local-even? 5)
+                         (local-odd? 5))))
+              e/env-global)))
 
 ;; To avoid using nested lets it would be nice if we implemented `letrec` (p. 62)
 ;; - for that we need to add it to our interpreter again
-;; Also, they show this in section 2.6.6 Recursion without assignmen
+;; Also, they show this in section 2.6.6 Recursion without assignment
 
 (defn evaluate [exp env]
   (if (e/atom? exp)
@@ -293,8 +331,21 @@
                 (e/evlis (rest exp) env)))))
 
 (assert
- (= 't (evaluate '(letrec ((local-even? (lambda (n) (if (= n 0) 't (local-odd? (- n 1)))))
-                           (local-odd? (lambda (n) (if (= n 1) 'f (local-even? (- n 1))))))
-                          (local-even? 4))
-                 (assoc e/env-global '= =))))
+ (= '(t f f t)
+    (evaluate '(letrec ((local-even? (lambda (n) (if (= n 0) 't (local-odd? (- n 1)))))
+                        (local-odd? (lambda (n) (if (= n 0) 'f (local-even? (- n 1))))))
+                       (let ((x (+ 2 3)))
+                         (list (local-even? 4)
+                               (local-odd? (+ 2 2))
+                               (local-even? x)
+                               (local-odd? x))))
+              e/env-global)))
 ;; => t
+
+(evaluate '(letrec ((local-even? (lambda (n) (if (= n 0) 't (local-odd? (- n 1)))))
+                    (local-odd? (lambda (n) (if (= n 0) 'f (local-even? (- n 1))))))
+                   (list (local-even? 6)
+                         (local-odd? 7)))
+          e/env-global)
+
+(let [n 6] (if (= n 0) 'f (even? (- n 1))))
