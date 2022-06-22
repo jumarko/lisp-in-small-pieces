@@ -209,12 +209,12 @@
       ;; CHANGE: implement a new special form `let` including the support for uninitialized bindings
       let (let [body (nnext exp)
                 bindings (second exp)
-                variables (map (fn [binding] (if (symbol? binding) binding (first binding)))
-                               bindings)
-                values (map (fn [binding] (if (symbol? binding)
-                                            the-uninitialized-marker
-                                            (evaluate (second binding) env)))
-                            bindings)]
+                variables (mapv (fn [binding] (if (symbol? binding) binding (first binding)))
+                                bindings)
+                values (mapv (fn [binding] (if (symbol? binding)
+                                             the-uninitialized-marker
+                                             (evaluate (second binding) env)))
+                             bindings)]
             (eprogn body (e/extend env variables values)))
 
 ;; it's not a special form, just ordinary function => call it!
@@ -228,13 +228,73 @@
 ;; => ch02-recursion/non-initialized
 
 ;; Can we now define even? and odd?
-(evaluate '(let (local-even? local-odd?)
-             (let ((local-even? (lambda (n) (if (= n 0) 't (local-odd? (- n 1)))))
-                   (local-odd? (lambda (n) (if (= n 1) 'f (local-even? (- n 1))))))
-               (local-even? 4)))
-          (assoc e/env-global '= =))
+(assert
+ (= 't
+    (evaluate '(let (local-even? local-odd?)
+                 (let ((local-even? (lambda (n) (if (= n 0) 't (local-odd? (- n 1)))))
+                       (local-odd? (lambda (n) (if (= n 1) 'f (local-even? (- n 1))))))
+                   (local-even? 4)))
+              (assoc e/env-global '= =))))
 ;; => t
 
 
 ;; To avoid using nested lets it would be nice if we implemented `letrec` (p. 62)
 ;; - for that we need to add it to our interpreter again
+;; Also, they show this in section 2.6.6 Recursion without assignmen
+
+(defn evaluate [exp env]
+  (if (e/atom? exp)
+    (cond
+      ;; lock immutability of t and f in the interpreter
+      (= 't exp) true
+      (= 'f exp) false
+      (symbol? exp) (lookup exp env)
+      ;; Notice that `keyword?` isn't here because keywords are Clojure's thing
+      ;; and aren't present in the Lisp we are trying to implement
+      ((some-fn number? string? char? boolean? vector?) exp) exp
+      :else (e/wrong "Cannot evaluate - unknown atomic expression?" exp))
+
+    ;; we use `first` instead of `car`
+    (case (first exp)
+      quote (second exp)
+      ;; (p.8) we gloss over the fact that in `(if pred)` we use boolean semantics
+      ;; of the implementation language (Clojure - which means `nil` will be falsy);
+      ;; more precisely, we should write `(if-not (= the-false-value (evaluate (second exp) env)))
+      if (if (evaluate (second exp) env)
+           (evaluate (nth exp 2) env)
+           (evaluate (nth exp 3) env))
+      begin (eprogn (rest exp) env)
+      set! (e/update! (second exp) env (evaluate (nth exp 2) env))
+      lambda (e/make-function (second exp) (nnext exp) env)
+      let (let [body (nnext exp)
+                bindings (second exp)
+                variables (mapv (fn [binding] (if (symbol? binding) binding (first binding)))
+                                bindings)
+                values (mapv (fn [binding] (if (symbol? binding)
+                                             the-uninitialized-marker
+                                             (evaluate (second binding) env)))
+                             bindings)]
+            (eprogn body (e/extend env variables values)))
+      ;; CHANGE: let's implement letrec!
+      letrec (let [body (nnext exp)
+                   bindings (second exp)
+                   ;; first add variables with uninitialized values
+                   variables (mapv first bindings)
+                   new-env (e/extend env variables (mapv (constantly the-uninitialized-marker) bindings))
+                   ;; then update variables to their proper values
+                   values (mapv (fn [[_fn-name fn-def :as _binding]]
+                                  (e/evaluate fn-def new-env))
+                                bindings)
+                   updated-env (e/extend env variables values)]
+               (eprogn body updated-env))
+
+      ;; it's not a special form, just an ordinary function => call it!
+      (e/invoke (evaluate (first exp) env)
+                (e/evlis (rest exp) env)))))
+
+(assert
+ (= 't (evaluate '(letrec ((local-even? (lambda (n) (if (= n 0) 't (local-odd? (- n 1)))))
+                           (local-odd? (lambda (n) (if (= n 1) 'f (local-even? (- n 1))))))
+                          (local-even? 4))
+                 (assoc e/env-global '= =))))
+;; => t
