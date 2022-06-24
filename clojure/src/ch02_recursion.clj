@@ -321,7 +321,7 @@
                    new-env (e/extend env variables (mapv (constantly the-uninitialized-marker) bindings))
                    ;; then update variables to their proper values
                    values (mapv (fn [[_fn-name fn-def :as _binding]]
-                                  (e/evaluate fn-def new-env))
+                                  (evaluate fn-def new-env))
                                 bindings)
                    updated-env (e/extend env variables values)]
                (eprogn body updated-env))
