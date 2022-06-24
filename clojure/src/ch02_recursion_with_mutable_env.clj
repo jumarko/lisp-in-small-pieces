@@ -91,7 +91,7 @@
   (instance? clojure.lang.Atom env))
 
 (defn- mutable-env [env]
-  (if (instance? clojure.lang.Atom env)
+  (if (mutable-env? env)
     env
     (atom env)))
 
