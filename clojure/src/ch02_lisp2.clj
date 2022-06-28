@@ -1007,7 +1007,7 @@ test-env
 
 ;; - now try to bind y with bind-de instead
 (dd-evaluate
- '(bind-de 'y 100 100
+ '(bind-de 'y 100
            (lambda ()
                    (* x (assoc-de 'y error))))
  (assoc e/env-global
