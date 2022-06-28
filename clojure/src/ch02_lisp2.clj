@@ -389,73 +389,77 @@
     :else (e/wrong "Incorrect functional term" f {:f f :args args :fenv fenv :env env})))
 
 ;; now use f-lookup in f-evaluate and also update `function` form handling and add `labels` form handling
-(defn f-evaluate [exp env fenv]
-  (if (e/atom? exp)
-    (cond
-      ;; lock immutability of t and f in the interpreter
-      (= 't exp) true
-      (= 'f exp) false
-      (symbol? exp) (e/lookup exp env)
-      ;; Notice that `keyword?` isn't here because keywords are Clojure's thing
-      ;; and aren't present in the Lisp we are trying to implement
-      ((some-fn number? string? char? boolean? vector?) exp) exp
-      :else (e/wrong "Cannot evaluate - unknown atomic expression?" exp))
+(defn f-evaluate
+  "Flexible f-evaluate allowing you to pass the function to be used to evaluate functional applications.
+  This is useful for ch2-exercises."
+  ([exp env fenv] (f-evaluate exp env fenv evaluate-application))
+  ([exp env fenv eval-application]
+   (if (e/atom? exp)
+     (cond
+       ;; lock immutability of t and f in the interpreter
+       (= 't exp) true
+       (= 'f exp) false
+       (symbol? exp) (e/lookup exp env)
+       ;; Notice that `keyword?` isn't here because keywords are Clojure's thing
+       ;; and aren't present in the Lisp we are trying to implement
+       ((some-fn number? string? char? boolean? vector?) exp) exp
+       :else (e/wrong "Cannot evaluate - unknown atomic expression?" exp))
 
-    ;; we use `first` instead of `car`
-    (case (first exp)
-      quote (second exp)
-      ;; (p.8) we gloss over the fact that in `(if pred)` we use boolean semantics
-      ;; of the implementation language (Clojure - which means `nil` will be falsy);
-      ;; more precisely, we should write `(if-not (= the-false-value (evaluate (second exp) env)))
-      if (if (f-evaluate (second exp) env fenv)
-           (f-evaluate (nth exp 2) env fenv)
-           (f-evaluate (nth exp 3) env fenv))
-      begin (f-eprogn (rest exp) env fenv)
-      set! (e/update! (second exp) env (f-evaluate (nth exp 2) env fenv))
-      lambda (f-make-function (second exp) (nnext exp) env fenv)
-      function (cond
-                 (symbol? (second exp))
-                 ;; CHANGE: use `f-lookup` instead of `e/lookup` to search in the functions env
-                 (f-lookup (second exp) fenv)
+     ;; we use `first` instead of `car`
+     (case (first exp)
+       quote (second exp)
+       ;; (p.8) we gloss over the fact that in `(if pred)` we use boolean semantics
+       ;; of the implementation language (Clojure - which means `nil` will be falsy);
+       ;; more precisely, we should write `(if-not (= the-false-value (evaluate (second exp) env)))
+       if (if (f-evaluate (second exp) env fenv)
+            (f-evaluate (nth exp 2) env fenv)
+            (f-evaluate (nth exp 3) env fenv))
+       begin (f-eprogn (rest exp) env fenv)
+       set! (e/update! (second exp) env (f-evaluate (nth exp 2) env fenv))
+       lambda (f-make-function (second exp) (nnext exp) env fenv)
+       function (cond
+                  (symbol? (second exp))
+                  ;; CHANGE: use `f-lookup` instead of `e/lookup` to search in the functions env
+                  (f-lookup (second exp) fenv)
 
-                 (and (list? (second exp)) (= 'lambda (first (second exp))))
-                 (f-make-function (second (second exp)) ; lambda's arglist
-                                  (nnext (second exp)) ; lambda's body
-                                  env
-                                  fenv)
+                  (and (list? (second exp)) (= 'lambda (first (second exp))))
+                  (f-make-function (second (second exp)) ; lambda's arglist
+                                   (nnext (second exp)) ; lambda's body
+                                   env
+                                   fenv)
 
-                 :else (e/wrong "Incorrect function" (second exp)))
-      ;; add `flet` special form as before
-      flet (let [flet-bindings (second exp)
-                 flet-body (nnext exp)
-                 fn-names (map first flet-bindings)
-                 fn-impls (map (fn [def]
-                                 ;; here is the core of what we do - notice that we use existing fenv
-                                 ;; so that means we can't cross-reference functions defined in `flet` earlier
-                                 (f-make-function (second def) (nnext def) env fenv))
-                               flet-bindings)
-                 fenv-with-fns (e/extend fenv fn-names fn-impls)]
-             (f-eprogn flet-body env fenv-with-fns))
-      ;; CHANGE: implement `labels` for cross-references between functions (flet doesn't allow that)
-      labels (let [bindings (second exp)
-                   body (nnext exp)
-                   fn-names (map first bindings)
-                   ;; First, extend fenv with dummy bindings for all local functions...
-                   fenv-with-fn-names (e/extend fenv fn-names (map (constantly `void) bindings))
-                   ;; ... then update fenv to with actual implementations
-                   ;; Notice how this is different from the mutable version used in the book
-                   ;; - here we use `reduce` and simply accumulate fenv changes as go through all the fns
-                   fenv-with-fn-impls (reduce (fn [new-fenv def]
-                                                (e/update! (first def)
-                                                           new-fenv
-                                                           (f-make-function (second def) (nnext def) env new-fenv)))
-                                              fenv-with-fn-names
-                                              bindings)]
-               (f-eprogn body env fenv-with-fn-impls))
-      (evaluate-application (first exp)
-                            (f-evlis (rest exp) env fenv)
-                            env
-                            fenv))))
+                  :else (e/wrong "Incorrect function" (second exp)))
+       ;; add `flet` special form as before
+       flet (let [flet-bindings (second exp)
+                  flet-body (nnext exp)
+                  fn-names (map first flet-bindings)
+                  fn-impls (map (fn [def]
+                                  ;; here is the core of what we do - notice that we use existing fenv
+                                  ;; so that means we can't cross-reference functions defined in `flet` earlier
+                                  (f-make-function (second def) (nnext def) env fenv))
+                                flet-bindings)
+                  fenv-with-fns (e/extend fenv fn-names fn-impls)]
+              (f-eprogn flet-body env fenv-with-fns))
+       ;; CHANGE: implement `labels` for cross-references between functions (flet doesn't allow that)
+       labels (let [bindings (second exp)
+                    body (nnext exp)
+                    fn-names (map first bindings)
+                    ;; First, extend fenv with dummy bindings for all local functions...
+                    fenv-with-fn-names (e/extend fenv fn-names (map (constantly `void) bindings))
+                    ;; ... then update fenv to with actual implementations
+                    ;; Notice how this is different from the mutable version used in the book
+                    ;; - here we use `reduce` and simply accumulate fenv changes as go through all the fns
+                    fenv-with-fn-impls (reduce (fn [new-fenv def]
+                                                 (e/update! (first def)
+                                                            new-fenv
+                                                            (f-make-function (second def) (nnext def) env new-fenv)))
+                                               fenv-with-fn-names
+                                               bindings)]
+                (f-eprogn body env fenv-with-fn-impls))
+       (eval-application (first exp)
+                             (f-evlis (rest exp) env fenv)
+                             env
+                             fenv)))))
 
 ;; What previously failed, now returns the proper result
 ;; (2^4)^4 = 2^16 = 65536
