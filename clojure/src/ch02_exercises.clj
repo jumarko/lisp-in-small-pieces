@@ -106,3 +106,68 @@
 
 ;;; Ex. 2.4
 ;;; Improve assoc-de to take a comparer (such as eq?, equal?, etc.) as an argument
+(defn error [tag env]
+  -1)
+
+(lisp2/dd-evaluate
+ '((lambda () (* x (assoc-de 'y error))))
+ (assoc e/env-global
+        ;; we must override `*` definition in `e/env-global` because it must also take denv
+        '* (fn [args _denv] (apply * args))
+        'x 3
+        'error error)
+ {})
+;; => -3
+
+(e/definitial assoc-de
+  (fn assoc-de
+    [values current-denv]
+    (case (count values)
+      2 (let [[tag default-f] values]
+          (if-let [[_ v] (find current-denv tag)]
+            v
+            (lisp2/dd-invoke default-f [tag] current-denv)))
+      3 (let [[tag default-f comparer] values]
+          ;; CHANGE: with custom comparer we have to go through the map instead of a simple lookup
+          (if-let [v (first (filter #(comparer tag (first %)) current-denv))]
+            (second v)
+            (lisp2/dd-invoke default-f [tag] current-denv)))
+      (e/wrong (str "Incorrect arity: " (count values)) 'assoc-de {:values values
+                                                                   :denv current-denv}))))
+
+(defn compare-syms [a b]
+  (or (= a b)
+      ;; compare first characters of the symbols
+      (< (-> a name first int)
+         (-> b name first int))))
+
+;; now bind y and check it works as usual
+(assert
+ (= 300
+    (lisp2/dd-evaluate
+     '(bind-de 'y 100
+               (lambda () (* x (assoc-de 'y error comp))))
+     (assoc e/env-global
+                ;; we must override `*` definition in `e/env-global` because it must also take denv
+            '* (fn [args _denv] (apply * args))
+            'x 3
+            'error error
+                ;; some random comparer to exercise our function
+            'comp compare-syms)
+     {})))
+
+;; with the first character earlier in the alphabet like 'w
+(assert
+ (= 330
+    (lisp2/dd-evaluate
+     '(bind-de 'y 110
+               (lambda () (* x (assoc-de 'w error comp))))
+     (assoc e/env-global
+            ;; we must override `*` definition in `e/env-global` because it must also take denv
+            '* (fn [args _denv] (apply * args))
+            'x 3
+            'error error
+            ;; some random comparer to exercise our function
+            'comp compare-syms)
+     {})))
+;; => 330
