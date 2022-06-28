@@ -275,6 +275,7 @@
   (f-defprimitive car first 1)
   (f-defprimitive cons cons 2)
   (f-defprimitive + + 2)
+  (f-defprimitive - - 2)
   (f-defprimitive * * 2))
 (f-stdlib)
 
