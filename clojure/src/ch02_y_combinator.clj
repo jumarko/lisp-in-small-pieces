@@ -1,9 +1,14 @@
 (ns ch02-y-combinator
-  "Y-combinator (also called 'Paradoxical combinator') stuff on p. 63-67.")
+  "Y-combinator (also called 'Paradoxical combinator') stuff on p. 63-67.
+
+  Resources (see Evernote)
+  - [very good!] https://mvanier.livejournal.com/2700.html"
+  (:require [clojure.math :as math]))
 
 ;;; Y-combinator, is simply a function that can compute a fixed point for another function.
 ;;; The rule for fixed point says that a 'fixed point' is some x such that x = f(x)
 ;;; This means that if x = Y(F), then: Y(F) = F(Y(F))
+
 
 ;; That was simple, but here they present a 'transcription' of the definition
 ;; in Lisp like this:
@@ -80,4 +85,29 @@
  (= [1 2 6 24 120 720 5040]
     (mapv (meta-fact another-fact)
           [1 2 3 4 5 6 7])))
+
+
+;;; Digress: https://mvanier.livejournal.com/2700.htm
+
+;; example of calculating fixed point for x = cosine(x)
+(def cosines (iterate math/cos 0))
+(reduce #(if (= %1 %2) (reduced %1) %2)
+        cosines)
+;; => 0.7390851332151607
+
+(defn g [f x]
+  (f (x x)))
+
+
+;; here's the version of Y combinator they offer for "strict" languages (like Clojure)
+(defn Y [f]
+  ((fn [x]
+     (f (fn [y] ((x x) y))))
+   (fn [x]
+     (f (fn [y] ((x x) y))))))
+((Y meta-fact)
+ 5)
+;; => 120
+
+
 
