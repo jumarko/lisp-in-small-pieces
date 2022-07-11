@@ -171,3 +171,12 @@
             'comp compare-syms)
      {})))
 ;; => 330
+
+
+;;; Ex. 2.5
+;;; Use `bind-de` and `assoc-de` to write macros that simulate
+;;; `dynamic-let`, `dynamic`, and `dynamic-set!`
+
+;; But How can I write macros for my language?!?
+;; I probably cannot and it's just an exercise but can't be used directly?
+;; => skip it

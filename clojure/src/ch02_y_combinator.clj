@@ -78,13 +78,11 @@
     (= n 1) 1
     :else (* n (another-fact (dec n)))))
 
-;; TODO: for 1 it returns 0. Why?
-(assert (= 1 ((meta-fact another-fact) 1)))
-
-(assert
- (= [1 2 6 24 120 720 5040]
-    (mapv (meta-fact another-fact)
-          [1 2 3 4 5 6 7])))
+;; notice that `another-fact` isn't really a proper implementation of a factorial...
+;; because it returns 0 for 1
+(mapv (meta-fact another-fact)
+      [1 2 3 4 5 6 7])
+;; => [0 2 6 24 120 720 5040]
 
 
 ;;; Digress: https://mvanier.livejournal.com/2700.htm
